@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>STREAM Operations Dashboard | Bengaluru Flood Early Warning</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #0f172a; color: #f8fafc; }
+    header { padding: 12px 24px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    h1 { margin: 0; font-size: 1.15rem; font-weight: 700; color: #38bdf8; }
+    .badge { padding: 5px 14px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; background: #22c55e; color: black; transition: all 0.3s; }
+    #container { display: flex; flex: 1; overflow: hidden; }
+    #map { flex: 2; height: 100%; }
+    #sidebar { flex: 1; max-width: 440px; background: #1e293b; border-left: 1px solid #334155; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+    .card { background: #0f172a; border-radius: 8px; padding: 14px; border: 1px solid #334155; border-left: 6px solid #64748b; transition: all 0.3s ease; }
+    .card.RED { border-left-color: #ef4444; }
+    .card.ORANGE { border-left-color: #f97316; }
+    .card.YELLOW { border-left-color: #eab308; }
+    .card.GREEN { border-left-color: #22c55e; }
+    .card-title { font-weight: 600; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+    .lead-time { color: #38bdf8; font-weight: 700; font-size: 0.85rem; margin-bottom: 4px; }
+    .depth-stat { font-size: 1.25rem; font-weight: 800; white-space: nowrap; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>STREAM Flood Telemetry & Early Alert Monitor</h1>
+      <small style="color: #94a3b8;">Rachenahalli – Manyata Tech Park Corridor (Primary Drain 127)</small>
+    </div>
+    <div id="system-badge" class="badge">SYSTEM NORMAL</div>
+  </header>
+  <div id="container">
+    <div id="map"></div>
+    <div id="sidebar">
+      <h3 style="margin-top: 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Telemetry Gauges</h3>
+      <div id="sensor-cards">Connecting to API...</div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([13.053, 77.617], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+    let markers = {};
+
+    const colorMap = {
+      "GREEN": "#22c55e",
+      "YELLOW": "#eab308",
+      "ORANGE": "#f97316",
+      "RED": "#ef4444"
+    };
+
+    // Sensor GPS fallback coordinates from your QGIS Shapefile
+    const defaultCoords = {
+      "SENSOR_01": [13.057039, 77.615071],
+      "SENSOR_02": [13.052925, 77.618056],
+      "SENSOR_03": [13.048505, 77.618309]
+    };
+
+    // Initialize markers
+    for (const [id, coords] of Object.entries(defaultCoords)) {
+      const marker = L.circleMarker(coords, {
+        radius: 9,
+        fillColor: "#22c55e",
+        color: "#ffffff",
+        weight: 2,
+        fillOpacity: 0.9
+      }).addTo(map).bindPopup(`<b>${id}</b><br>Connecting...`);
+      markers[id] = marker;
+    }
+
+    async function updateStatus() {
+      try {
+        const res = await fetch("http://127.0.0.1:8000/api/sensors/status");
+        const data = await res.json();
+        const container = document.getElementById("sensor-cards");
+        container.innerHTML = "";
+
+        let highestAlert = "GREEN";
+
+        for (const [id, s] of Object.entries(data)) {
+          if (s.alert_level === "RED") highestAlert = "RED";
+          else if (s.alert_level === "ORANGE" && highestAlert !== "RED") highestAlert = "ORANGE";
+          else if (s.alert_level === "YELLOW" && highestAlert === "GREEN") highestAlert = "YELLOW";
+
+          const card = document.createElement("div");
+          card.className = `card ${s.alert_level}`;
+          card.innerHTML = `
+            <div class="card-title">
+              <span>${id}: ${s.name}</span>
+              <span class="depth-stat" style="color: ${colorMap[s.alert_level] || '#fff'}">${s.water_depth_m.toFixed(2)} m</span>
+            </div>
+            <div class="lead-time">Lead Time: ${s.lead_time}</div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">Rise Rate: +${s.rate_of_rise_cm_min} cm/min | Updated: ${s.last_updated}</div>
+          `;
+          container.appendChild(card);
+
+          if (markers[id]) {
+            markers[id].setStyle({ fillColor: colorMap[s.alert_level] || "#22c55e" });
+            markers[id].setPopupContent(`<b>${id}: ${s.name}</b><br>Level: ${s.alert_level}<br>Depth: ${s.water_depth_m.toFixed(2)} m<br>Lead Time: ${s.lead_time}`);
+          }
+        }
+
+        const badge = document.getElementById("system-badge");
+        badge.innerText = highestAlert === "GREEN" ? "SYSTEM NORMAL" : `${highestAlert} SURGE ACTIVE`;
+        badge.style.backgroundColor = colorMap[highestAlert];
+        badge.style.color = highestAlert === "YELLOW" ? "#000" : "#fff";
+
+      } catch (err) {
+        console.error("Telemetry fetch error:", err);
+      }
+    }
+
+    setInterval(updateStatus, 2000);
+    updateStatus();
+  </script>
+</body>
+</html>
