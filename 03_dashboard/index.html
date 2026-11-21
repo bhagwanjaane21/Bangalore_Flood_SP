@@ -44,6 +44,31 @@
     const map = L.map('map').setView([13.053, 77.617], 14);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
+    const sensorLayerGroup = L.layerGroup().addTo(map);
+    const bypassLayerGroup = L.layerGroup().addTo(map);
+
+    L.control.layers(null, {
+      "Telemetry Sensors": sensorLayerGroup,
+      "1.6 km Bypass Canal": bypassLayerGroup
+    }, { collapsed: false }).addTo(map);
+
+   fetch("../01_spatial_data/manyata_bypass_1.6km.geojson")
+      .then(res => res.json())
+      .then(geojsonData => {
+        L.geoJSON(geojsonData, {
+          style: {
+            color: "#00e5ff",
+            weight: 8,
+            opacity: 0.95,
+            dashArray: "10, 6"
+          },
+          onEachFeature: function (feature, layer) {
+            layer.bindPopup("<b>Manyata–Karle Concrete Bypass Canal</b><br>Length: ~1.6 km<br>Diverts storm surge toward Nagavara Lake");
+          }
+        }).addTo(bypassLayerGroup);
+      })
+      .catch(err => console.error("Bypass GeoJSON load nahi hui:", err));
+
     let markers = {};
 
     const colorMap = {
@@ -53,14 +78,12 @@
       "RED": "#ef4444"
     };
 
-    // Sensor GPS fallback coordinates from your QGIS Shapefile
     const defaultCoords = {
       "SENSOR_01": [13.057039, 77.615071],
       "SENSOR_02": [13.052925, 77.618056],
       "SENSOR_03": [13.048505, 77.618309]
     };
 
-    // Initialize markers
     for (const [id, coords] of Object.entries(defaultCoords)) {
       const marker = L.circleMarker(coords, {
         radius: 9,
@@ -68,7 +91,7 @@
         color: "#ffffff",
         weight: 2,
         fillOpacity: 0.9
-      }).addTo(map).bindPopup(`<b>${id}</b><br>Connecting...`);
+      }).addTo(sensorLayerGroup).bindPopup(`<b>${id}</b><br>Connecting...`);
       markers[id] = marker;
     }
 
