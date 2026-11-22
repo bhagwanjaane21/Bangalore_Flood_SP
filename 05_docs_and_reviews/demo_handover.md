@@ -6,16 +6,19 @@ are outside this demonstration.
 
 ## Checkpoints and ownership
 
-- Current merged baseline: `c759115` (original frontend PR #8 followed by fixes #9).
+- Dashboard integration revision: `d91347d` (PR #10), following the original
+  frontend PR #8 and fixes #9.
   Vanshika's original commit `9caa0d1` and authorship remain in main's history.
-- Final dashboard checkpoint: `827278c` on `feature/dashboard-demo-readiness`.
+- Final dashboard checkpoint: `827278c`, merged through
+  [PR #10](https://github.com/bhagwanjaane21/Bangalore_Flood_SP/pull/10).
   It adds readable data age/quality notes, responsive fixes, five regression
-  cases and browser screenshots. It is a separate frontend change awaiting merge.
+  cases and browser screenshots. Its temporary frontend branch can be removed;
+  the checkpoint and screenshots remain in main and the PR history.
 - This handover and rehearsal evidence are maintained on `backend/vernit`.
   That branch inherits already-merged frontend changes by syncing main, but its
   new checkpoint changes only backend documentation and review evidence.
-- Use the frontend checkpoint for the final dashboard preview until it is merged
-  into main. The backend APIs and commands below are the same on both branches.
+- Use `main` for the final dashboard preview. The backend APIs and commands below
+  are unchanged by these integration checkpoints.
 
 ## Setup
 
@@ -125,8 +128,8 @@ node --test 03_dashboard/tests/dashboard.test.cjs
 ```
 
 The combined final dashboard/backend candidate passed **210 Python tests and
-24 dashboard behavior tests**. Existing main has 19 dashboard tests until the
-separate frontend checkpoint is merged. Tests cover empty/partial/stale status,
+24 dashboard behavior tests**, now included in main through PR #10.
+Tests cover empty/partial/stale status,
 connection recovery, history isolation, configurable recovery requirements,
 safe rendering, age/provenance and readable quality notes.
 

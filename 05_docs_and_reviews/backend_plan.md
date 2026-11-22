@@ -162,7 +162,7 @@ integration branch preserves that head for anyone who already fetched it.
 | 3 | Completed locally | One persisted alert engine, signed trend evidence, recovery deadband/persistence, explicit quality/freshness metadata and bounded/cursor-based event history. Telemetry, state and events share one transaction; migration/restart do not replay events. See Phase 3 verification below. |
 | 4 | Completed locally | Six finite scenarios, isolated managed demo servers/databases, explicit simulated clocks and real freshness waits, duplicate-safe HTTP retries, owned-process checks, cancellation, persisted plans/reports and exact expected-state/event/history verification. See Phase 4 verification below. |
 | 5 | Completed locally (dry-run + mocked delivery) | Separate durable notification ledger, atomic event cursor, stream identity, claim/restart recovery, bounded retries, 429 cooldown, explicit uncertain delivery, freshness/source guards and dry-run default. 65 notification cases passed; no real Telegram messages sent. Live demo-destination acceptance remains unverified. See Phase 5 verification below. |
-| 6 | Software rehearsal verified; external handover checks pending | Original frontend PRs #1, #2 and #8, plus fixes #4 and #9, are merged. All six real-HTTP scenarios with dry-run notification restart checks passed. Final dashboard checkpoint 827278c separately adds browser evidence, data age and readable quality notes. Combined verification: 210 Python and 24 dashboard tests. Physical LAN, independent teammate setup and optional live Telegram delivery remain unverified. See demo_handover.md. |
+| 6 | Software rehearsal verified; external handover checks pending | Original frontend PRs #1, #2 and #8, plus fixes #4 and #9, are merged. All six real-HTTP scenarios with dry-run notification restart checks passed. Dashboard checkpoint 827278c is merged through PR #10, adding browser evidence, data age and readable quality notes. Combined verification: 210 Python and 24 dashboard tests. Physical LAN, independent teammate setup and optional live Telegram delivery remain unverified. See demo_handover.md. |
 
 ### Checkpoint 1 verification — 22 November 2026
 
@@ -277,6 +277,9 @@ integration branch preserves that head for anyone who already fetched it.
   `feature/dashboard-demo-readiness` adds age/quality labels, responsive fixes,
   five new behavior tests, browser measurements and six screenshots. This
   backend/docs checkpoint introduces no frontend source changes.
+- Dashboard PR #10 was merged into main at `d91347d` before the handover PR #11.
+  The runbook now directs the team to main; screenshots stay available after
+  cleanup of the merged frontend branch. `backend/vernit` is retained.
 - Rehearsed all six scenarios through real HTTP with distinct owned databases.
   The notification worker ran at each checkpoint in dry-run mode; 13 expected
   transitions produced 13 previews. Reopening each ledger produced zero new
