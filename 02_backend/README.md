@@ -34,7 +34,8 @@ timestamps have unknown timezone, so they remain available as legacy timestamps
 with unknown freshness rather than being relabelled as UTC.
 Phase 3 adds stored alert decisions, per-node recovery state and alert events.
 Startup initializes the latest historical state without generating old alert
-events; restarting preserves recovery progress and does not replay notifications.
+events; restarting preserves recovery progress. Phase 5 adds a persistent event
+stream UUID and a separate notification ledger; neither migration deletes data.
 
 The previously committed `02_backend/app/telemetry.db` is no longer tracked or
 used by default. Its existing local copy is retained. If you need those records,
@@ -43,7 +44,8 @@ stop the server and explicitly select it with
 deleting data. Remove the override to return to the new default database.
 
 `GET /health` checks the expected telemetry columns and database access on every
-request. It returns 200 with `status: ok`, `database: ready`, `mode: prototype`, or
+request. It returns 200 with `status: ok`, `database: ready`, `mode: prototype`,
+and a database-specific `event_stream_id`, or
 503 if storage becomes unavailable. It does not establish fresh sensor readings
 or validate flood predictions. If a DB disappears after startup, the check fails
 without creating a replacement; restart to initialize a new DB intentionally.
@@ -89,8 +91,7 @@ send Telegram messages or modify the legacy sample database.
 
 Phase 3 uses one alert engine for ingestion and status, with persisted reasons,
 trend evidence, recovery hysteresis and `GET /api/alerts`. See
-[the API contract and prototype rules](API.md). Notification delivery and scenario
-controls remain separate checkpoints in `05_docs_and_reviews/backend_plan.md`.
+[the API contract and prototype rules](API.md).
 Phase 4 adds [finite, repeatable simulation scenarios](SIMULATIONS.md):
 
 ```powershell
@@ -101,3 +102,16 @@ python 02_backend/simulate.py progressing-surge --speed 5 --keep-server
 The managed demo starts on port 8001 with a fresh database and saves a verified
 run report. It leaves the dashboard available with `--keep-server`; Ctrl+C stops
 the server. No frontend changes or notification delivery are part of Phase 4.
+
+Phase 5 adds [durable notification delivery and dry-run previews](NOTIFICATIONS.md):
+
+```powershell
+python 02_backend/notify.py --base-url http://127.0.0.1:8001 --watch
+python 02_backend/notify.py --status
+```
+
+The default never contacts Telegram, even if credential variables are present.
+Live sending requires explicit `--live` and environment credentials. The original
+`04_notifications/telegram_bot.py` now delegates to this same worker and defaults
+to dry-run. The Phase 5 change includes notification code and backend/docs only;
+frontend and spatial source files are unchanged.

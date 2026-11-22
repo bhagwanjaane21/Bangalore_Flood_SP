@@ -65,12 +65,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health():
         try:
             database.check_ready()
+            stream_id = database.event_stream_id()
         except (sqlite3.Error, OSError):
             logger.exception("Telemetry database readiness check failed")
             return JSONResponse(status_code=503, content={
                 "status": "unhealthy", "database": "unavailable", "mode": "prototype",
             })
-        result = {"status": "ok", "database": "ready", "mode": "prototype"}
+        result = {"status": "ok", "database": "ready", "mode": "prototype",
+                  "event_stream_id": stream_id}
         if settings.simulation_run_id:
             result["simulation_run_id"] = settings.simulation_run_id
         return result
@@ -111,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             row["node_id"]: {
                 **public_reading(row),
+                "alert_event_id": row["alert_event_id"],
                 **data_freshness(row, now, settings.stale_after_seconds),
                 "last_updated": row["timestamp"],
             }
