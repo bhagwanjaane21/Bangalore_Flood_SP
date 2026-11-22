@@ -12,8 +12,8 @@ alerts, and a reproducible software demonstration. Physical hardware is not
 required for this review. Frontend implementation stays with the frontend team.
 
 Finish a reliable backend prototype before adding optional features. Retain
-the current repository layout. This plan is a proposed implementation sequence;
-only checkpoint 0 has been completed.
+the current repository layout. Checkpoints 0 and 1 are complete locally; later
+checkpoints remain the proposed implementation sequence.
 
 ## Checkpoints and completion evidence
 
@@ -135,9 +135,23 @@ times and physical actuation are outside the software prototype's completion cla
 | Checkpoint | Status | Evidence |
 | --- | --- | --- |
 | 0 | Completed locally | Current repository and both PR heads reviewed; API smoke probes, mocked dispatcher probe, JS syntax checks and PR merge-tree check performed. See `frontend_pr_review.md`. |
-| 1 | Not started | — |
+| 1 | Completed locally | Package imports, central runtime settings, working-directory-independent launcher and paths, lifespan DB initialization, readiness checks, generated-data ignores, sample DB untracked, and setup instructions. All 20 tests passed on Python 3.13.6, including four real server launches (root/backend/unrelated directory/clean source copy), persistence, API compatibility and storage failure cases. |
 | 2 | Not started | — |
 | 3 | Not started | — |
 | 4 | Not started | — |
 | 5 | Not started | — |
 | 6 | Not started | — |
+
+### Checkpoint 1 verification — 22 November 2026
+
+- Command: `python -B -m pytest 02_backend/tests -q -p no:cacheprovider`.
+- Result: **20 passed**. Tests use temporary databases and do not send messages.
+- Tested runtime: FastAPI 0.135.2, Uvicorn 0.42.0, Pydantic 2.12.5,
+  HTTPX 0.28.1, pytest 9.0.2, Python 3.13.6.
+- Startup now uses `python 02_backend/run.py`; see `02_backend/README.md` for
+  virtual environment setup, optional configuration and LAN binding.
+- The legacy `02_backend/app/telemetry.db` is retained locally but removed from
+  version control. Fresh source uses the generated `02_backend/data/telemetry.db`.
+- Existing telemetry payloads, status response keys and alert thresholds are
+  preserved. Data validation, history, bypass serving and alert logic changes
+  remain in checkpoints 2 and 3; frontend source is unchanged.
