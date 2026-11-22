@@ -1,0 +1,1 @@
+"""STREAM backend application package."""

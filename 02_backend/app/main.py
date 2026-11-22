@@ -1,33 +1,22 @@
-import os
-import json
-from datetime import datetime
-from typing import Optional
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+import logging
+import math
+import sqlite3
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, JSONResponse
 
-from database import init_db, log_telemetry, get_latest_telemetry
+from .config import PROJECT_DIR, Settings, load_settings
+from .database import TelemetryDatabase
+from .spatial import load_spatial
+from .telemetry import TelemetryConflict, TelemetryReading, public_reading
 
-app = FastAPI(
-    title="STREAM: Stormwater Real-time Early Alert Model",
-    description="Backend Ingestion & Early Warning API for Rachenahalli-Manyata Corridor",
-    version="1.0.0"
-)
+logger = logging.getLogger(__name__)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class TelemetryReading(BaseModel):
-    node_id: str
-    water_depth_m: float
-    rate_of_rise_cm_min: Optional[float] = 0.0
-    battery_voltage: Optional[float] = 3.7
 
 THRESHOLDS = {
     "SENSOR_01": {
@@ -53,82 +42,160 @@ THRESHOLDS = {
     }
 }
 
-@app.on_event("startup")
-def startup_event():
-    init_db()
 
-@app.get("/")
-def serve_dashboard():
-    dashboard_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "03_dashboard", "index.html")
-    )
-    if not os.path.exists(dashboard_path):
-        raise HTTPException(status_code=404, detail="Dashboard index.html not found")
-    return FileResponse(dashboard_path)
-
-@app.post("/api/telemetry")
-def ingest_telemetry(data: TelemetryReading):
-    if data.node_id not in THRESHOLDS:
-        raise HTTPException(status_code=400, detail=f"Unknown node_id: {data.node_id}")
-    
-    log_telemetry(
-        node_id=data.node_id,
-        depth=data.water_depth_m,
-        rise_rate=data.rate_of_rise_cm_min,
-        voltage=data.battery_voltage
-    )
-    
-    cfg = THRESHOLDS[data.node_id]
-    level = "GREEN"
-    if data.water_depth_m >= cfg["red"]:
-        level = "RED"
-    elif data.water_depth_m >= cfg["orange"]:
-        level = "ORANGE"
-    elif data.water_depth_m >= cfg["yellow"]:
-        level = "YELLOW"
-        
+def data_freshness(reading: dict, now: datetime, stale_after_seconds: int) -> dict:
+    if not reading["received_at"]:
+        return {"data_status": "unknown", "data_age_seconds": None}
+    received = datetime.fromisoformat(reading["received_at"].replace("Z", "+00:00"))
+    age = max(0.0, (now - received).total_seconds())
+    if reading["source"] != "simulated" and reading["observed_at"]:
+        observed = datetime.fromisoformat(reading["observed_at"].replace("Z", "+00:00"))
+        age = max(age, (now - observed).total_seconds())
     return {
-        "status": "logged",
-        "node_id": data.node_id,
-        "alert_level": level,
-        "lead_time": cfg["lead_time"],
-        "recorded_depth_m": data.water_depth_m
+        "data_status": "stale" if age > stale_after_seconds else "fresh",
+        "data_age_seconds": round(age, 1),
     }
 
-@app.get("/api/sensors/status")
-def get_sensor_status():
-    readings = get_latest_telemetry()
-    status_summary = {}
-    
-    for r in readings:
-        nid = r["node_id"]
-        depth = r["water_depth_m"]
-        cfg = THRESHOLDS.get(nid, {})
-        
-        level = "GREEN"
-        if depth >= cfg.get("red", 1.5):
-            level = "RED"
-        elif depth >= cfg.get("orange", 1.0):
-            level = "ORANGE"
-        elif depth >= cfg.get("yellow", 0.5):
-            level = "YELLOW"
-            
-        status_summary[nid] = {
-            "name": cfg.get("name", nid),
-            "water_depth_m": depth,
-            "rate_of_rise_cm_min": r["rate_of_rise_cm_min"],
-            "battery_voltage": r["battery_voltage"],
-            "alert_level": level,
-            "lead_time": cfg.get("lead_time", "N/A"),
-            "last_updated": r["timestamp"]
-        }
-    return status_summary
 
-@app.get("/api/spatial/sensors")
-def get_sensor_geojson():
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "01_spatial_data"))
-    geojson_path = os.path.join(base_dir, "sensors.geojson")
-    if not os.path.exists(geojson_path):
-        raise HTTPException(status_code=404, detail=f"sensors.geojson not found at {geojson_path}")
-    with open(geojson_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings if settings is not None else load_settings()
+    database = TelemetryDatabase(settings.database_path)
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        database.init_db()
+        logger.info("Telemetry database ready: %s", database.path)
+        yield
+
+    application = FastAPI(
+        title="STREAM: Stormwater Real-time Early Alert Model",
+        description="Backend Ingestion & Early Warning API for Rachenahalli-Manyata Corridor",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
+    application.state.database = database
+    application.state.settings = settings
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_error_handler(request, exc):
+        # Non-finite JSON numbers must produce a usable 422, not a failure while
+        # JSON-encoding the validation error itself.
+        detail = jsonable_encoder(exc.errors(), custom_encoder={
+            float: lambda value: value if math.isfinite(value) else str(value),
+            ValueError: str,
+        })
+        return JSONResponse(status_code=422, content={"detail": detail})
+
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_origins),
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
+
+    @application.get("/health")
+    def health():
+        try:
+            database.check_ready()
+        except (sqlite3.Error, OSError):
+            logger.exception("Telemetry database readiness check failed")
+            return JSONResponse(status_code=503, content={
+                "status": "unhealthy", "database": "unavailable", "mode": "prototype",
+            })
+        return {"status": "ok", "database": "ready", "mode": "prototype"}
+
+    @application.get("/")
+    def serve_dashboard():
+        dashboard_path = PROJECT_DIR / "03_dashboard" / "index.html"
+        if not dashboard_path.is_file():
+            raise HTTPException(status_code=404, detail="Dashboard index.html not found")
+        return FileResponse(dashboard_path)
+
+    @application.post("/api/telemetry")
+    def ingest_telemetry(data: TelemetryReading):
+        if data.node_id not in THRESHOLDS:
+            raise HTTPException(status_code=400, detail=f"Unknown node_id: {data.node_id}")
+
+        received_at = datetime.now(timezone.utc)
+        if (data.observed_at is not None and data.source != "simulated"
+                and data.observed_at > received_at + timedelta(minutes=5)):
+            raise HTTPException(status_code=422, detail="observed_at is more than five minutes in the future")
+        try:
+            reading, created = database.store_telemetry(data, received_at)
+        except TelemetryConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        cfg = THRESHOLDS[data.node_id]
+        level = "GREEN"
+        if data.water_depth_m >= cfg["red"]:
+            level = "RED"
+        elif data.water_depth_m >= cfg["orange"]:
+            level = "ORANGE"
+        elif data.water_depth_m >= cfg["yellow"]:
+            level = "YELLOW"
+
+        return {
+            **public_reading(reading),
+            "status": "logged" if created else "duplicate",
+            "node_id": data.node_id,
+            "alert_level": level,
+            "lead_time": cfg["lead_time"],
+            "recorded_depth_m": data.water_depth_m,
+            "lead_time_source": "unvalidated_assumption",
+        }
+
+    @application.get("/api/sensors/status")
+    def get_sensor_status():
+        readings = database.get_latest_telemetry()
+        status_summary = {}
+        now = datetime.now(timezone.utc)
+
+        for r in readings:
+            nid = r["node_id"]
+            depth = r["water_depth_m"]
+            cfg = THRESHOLDS.get(nid, {})
+
+            level = "GREEN"
+            if depth >= cfg.get("red", 1.5):
+                level = "RED"
+            elif depth >= cfg.get("orange", 1.0):
+                level = "ORANGE"
+            elif depth >= cfg.get("yellow", 0.5):
+                level = "YELLOW"
+
+            status_summary[nid] = {
+                **public_reading(r),
+                **data_freshness(r, now, settings.stale_after_seconds),
+                "name": cfg.get("name", nid),
+                "water_depth_m": depth,
+                "rate_of_rise_cm_min": r["rate_of_rise_cm_min"],
+                "battery_voltage": r["battery_voltage"],
+                "alert_level": level,
+                "lead_time": cfg.get("lead_time", "N/A"),
+                "last_updated": r["timestamp"],
+                "lead_time_source": "unvalidated_assumption",
+            }
+        return status_summary
+
+    @application.get("/api/spatial/sensors")
+    def get_sensor_geojson():
+        return load_spatial(PROJECT_DIR / "01_spatial_data" / "sensors.geojson", "Point")
+
+    @application.get("/api/spatial/bypass")
+    @application.get("/01_spatial_data/manyata_bypass_1.6km.geojson", include_in_schema=False)
+    def get_bypass_geojson():
+        return load_spatial(PROJECT_DIR / "01_spatial_data" / "manyata_bypass_1.6km.geojson", "LineString")
+
+    @application.get("/api/sensors/history/{node_id}")
+    def get_sensor_history(node_id: str, limit: int = Query(default=120, ge=1, le=1000)):
+        if node_id not in THRESHOLDS:
+            raise HTTPException(status_code=404, detail=f"Unknown node_id: {node_id}")
+        return [public_reading(row) for row in database.get_history(node_id, limit)]
+
+    return application
+
+
+app = create_app()
