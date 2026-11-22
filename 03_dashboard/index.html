@@ -9,7 +9,7 @@
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #0f172a; color: #f8fafc; }
     header { padding: 12px 24px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
     h1 { margin: 0; font-size: 1.15rem; font-weight: 700; color: #38bdf8; }
-    .badge { padding: 5px 14px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; background: #22c55e; color: black; transition: all 0.3s; }
+    .badge { padding: 5px 14px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; background: #64748b; color: white; transition: all 0.3s; }
     #detour-banner { display: none; background: #991b1b; color: #fef2f2; padding: 10px 24px; font-size: 0.88rem; font-weight: 600; border-bottom: 1px solid #ef4444; text-align: center; letter-spacing: 0.02em; }
     #container { display: flex; flex: 1; overflow: hidden; }
     #map { flex: 2; height: 100%; }
@@ -23,239 +23,266 @@
     .lead-time { color: #38bdf8; font-weight: 700; font-size: 0.85rem; margin-bottom: 4px; }
     .depth-stat { font-size: 1.25rem; font-weight: 800; white-space: nowrap; margin-left: 8px; }
     .chart-box { background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155; }
+    .status-note { font-size: 0.78rem; line-height: 1.5; color: #cbd5e1; margin: 0; }
+    .chart-box { height: 230px; }
+    .card.UNKNOWN { border-left-color: #64748b; }
+    .card-title { gap: 12px; }
+    @media (max-width: 800px) {
+      body { height: auto; min-height: 100vh; }
+      header { gap: 12px; flex-wrap: wrap; }
+      #container { flex-direction: column; overflow: visible; }
+      #map { flex: none; height: 45vh; min-height: 300px; }
+      #sidebar { max-width: none; border-left: 0; border-top: 1px solid #334155; }
+    }
   </style>
 </head>
 <body>
   <header>
     <div>
       <h1>STREAM Flood Telemetry & Early Alert Monitor</h1>
-      <small style="color: #94a3b8;">Rachenahalli – Manyata Tech Park Corridor (Primary Drain 127)</small>
+      <small style="color: #94a3b8;">Rachenahalli – Manyata corridor · Proposed sensor locations · Prototype</small>
     </div>
-    <div id="system-badge" class="badge">SYSTEM NORMAL</div>
+    <div id="system-badge" class="badge">CONNECTING</div>
   </header>
 
   <div id="detour-banner">
-    🚨 CRITICAL FLOOD ALERT AT MANYATA GATE 4: Avoid Thanisandra Main Road (Red Zone) — Follow Green Detour Corridor toward Bellary Road (NH44) / Hebbal Flyover!
+    Prototype alert. Alternative paths are illustrative; road passability is unverified.
   </div>
 
   <div id="container">
     <div id="map"></div>
     <div id="sidebar">
       <h3 style="margin: 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Telemetry Gauges</h3>
-      <div id="sensor-cards">Connecting to API...</div>
+      <div id="sensor-cards" aria-live="polite">Connecting to API...</div>
+      <p id="spatial-status" class="status-note">Loading mapped corridor...</p>
 
       <h3 style="margin: 6px 0 0 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Live Hydrograph (Water Depth)</h3>
       <div class="chart-box">
         <canvas id="hydrographChart" height="190"></canvas>
       </div>
+      <p id="history-status" class="status-note">Loading stored observations...</p>
     </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
   <script>
-    const map = L.map('map').setView([13.053, 77.617], 14);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-
-    const sensorLayerGroup = L.layerGroup().addTo(map);
-    const bypassLayerGroup = L.layerGroup().addTo(map);
-    const detourLayerGroup = L.layerGroup(); // RED alert aane par automatically on hoga
-
-    L.control.layers(null, {
-      "Telemetry Sensors": sensorLayerGroup,
-      "1.6 km Bypass Canal": bypassLayerGroup,
-      "Safe Detour Routes": detourLayerGroup
-    }, { collapsed: false }).addTo(map);
-
-    // 1. 1.6 km Bypass Canal GeoJSON Layer
-    fetch("../01_spatial_data/manyata_bypass_1.6km.geojson")
-      .then(res => res.json())
-      .then(geojsonData => {
-        L.geoJSON(geojsonData, {
-          style: {
-            color: "#00e5ff",
-            weight: 8,
-            opacity: 0.95,
-            dashArray: "10, 6"
-          },
-          onEachFeature: function (feature, layer) {
-            layer.bindPopup("<b>Manyata–Karle Concrete Bypass Canal</b><br>Length: ~1.6 km<br>Diverts storm surge toward Nagavara Lake");
-          }
-        }).addTo(bypassLayerGroup);
-      })
-      .catch(err => console.error("Bypass GeoJSON load nahi hui:", err));
-
-    // 2. Safe Commuter Detour Routing Polylines (Flood Danger Zone vs Safe Exit Routes)
-    const floodedRoadCoords = [
-      [13.0515, 77.6195],
-      [13.0485, 77.6183],
-      [13.0458, 77.6168]
-    ];
-    L.polyline(floodedRoadCoords, {
-      color: "#ef4444",
-      weight: 7,
-      opacity: 0.9,
-      dashArray: "6, 8"
-    })
-    .bindPopup("<b>⛔ FLOODED DANGER ZONE</b><br>Thanisandra Main Road / Manyata Gate 4<br>Do not enter — High waterlogging risk")
-    .addTo(detourLayerGroup);
-
-    const safeExitHebbalCoords = [
-      [13.0485, 77.6183],
-      [13.0472, 77.6135],
-      [13.0455, 77.6050],
-      [13.0442, 77.5960]
-    ];
-    L.polyline(safeExitHebbalCoords, {
-      color: "#10b981",
-      weight: 6,
-      opacity: 0.95
-    })
-    .bindPopup("<b>✅ SAFE DETOUR CORRIDOR 1</b><br>Outer Ring Road Westbound → Hebbal Flyover / Bellary Road (NH44)")
-    .addTo(detourLayerGroup);
-
-    const safeExitNorthCoords = [
-      [13.0535, 77.6155],
-      [13.0575, 77.6110],
-      [13.0610, 77.6030],
-      [13.0635, 77.5945]
-    ];
-    L.polyline(safeExitNorthCoords, {
-      color: "#10b981",
-      weight: 6,
-      opacity: 0.95,
-      dashArray: "12, 6"
-    })
-    .bindPopup("<b>✅ SAFE DETOUR CORRIDOR 2</b><br>Rachenahalli – Jakkur Bypass → Bellary Road (NH44) Northbound")
-    .addTo(detourLayerGroup);
-
+    const colorMap = { GREEN: '#22c55e', YELLOW: '#eab308', ORANGE: '#f97316', RED: '#ef4444', UNKNOWN: '#64748b' };
+    const alertRank = { GREEN: 0, YELLOW: 1, ORANGE: 2, RED: 3 };
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    const timeLabel = value => value ? new Date(value).toLocaleString() : 'Unknown';
+    let catalog = [];
     let markers = {};
+    let hydroChart = null;
+    const configuredGapSeconds = Number(globalThis.STREAM_DASHBOARD_CONFIG?.historyGapSeconds ?? 90);
+    let gapLimitMs = Number.isFinite(configuredGapSeconds) && configuredGapSeconds > 0 ? configuredGapSeconds * 1000 : 90000;
+    let map = null;
+    let sensorLayerGroup = null;
+    let bypassLayerGroup = null;
+    let detourLayerGroup = null;
 
-    const colorMap = {
-      "GREEN": "#22c55e",
-      "YELLOW": "#eab308",
-      "ORANGE": "#f97316",
-      "RED": "#ef4444"
-    };
-
-    const defaultCoords = {
-      "SENSOR_01": [13.057039, 77.615071],
-      "SENSOR_02": [13.052925, 77.618056],
-      "SENSOR_03": [13.048505, 77.618309]
-    };
-
-    for (const [id, coords] of Object.entries(defaultCoords)) {
-      const marker = L.circleMarker(coords, {
-        radius: 9,
-        fillColor: "#22c55e",
-        color: "#ffffff",
-        weight: 2,
-        fillOpacity: 0.9
-      }).addTo(sensorLayerGroup).bindPopup(`<b>${id}</b><br>Connecting...`);
-      markers[id] = marker;
-    }
-
-    // 3. Chart.js Live Hydrograph Setup
-    const ctx = document.getElementById('hydrographChart').getContext('2d');
-    const hydroChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [
-          { label: 'SENSOR_01 (Upstream)', data: [], borderColor: '#38bdf8', backgroundColor: '#38bdf8', tension: 0.3, borderWidth: 2, pointRadius: 2 },
-          { label: 'SENSOR_02 (Midstream)', data: [], borderColor: '#eab308', backgroundColor: '#eab308', tension: 0.3, borderWidth: 2, pointRadius: 2 },
-          { label: 'SENSOR_03 (Manyata Gate 4)', data: [], borderColor: '#ef4444', backgroundColor: '#ef4444', tension: 0.3, borderWidth: 2, pointRadius: 2 }
-        ]
-      },
-      options: {
-        responsive: true,
-        animation: false,
-        scales: {
-          x: { ticks: { color: '#94a3b8', maxTicksLimit: 6 }, grid: { color: '#1e293b' } },
-          y: { beginAtZero: true, suggestedMax: 2.0, ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' }, title: { display: true, text: 'Depth (m)', color: '#94a3b8' } }
-        },
-        plugins: {
-          legend: { labels: { color: '#f8fafc', boxWidth: 12, font: { size: 11 } } }
-        }
-      }
-    });
-
-    let isDetourActive = false;
-
-    async function updateStatus() {
+    async function getJson(url) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4000);
       try {
-        const res = await fetch("http://127.0.0.1:8000/api/sensors/status");
-        const data = await res.json();
-        const container = document.getElementById("sensor-cards");
-        container.innerHTML = "";
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+        return await response.json();
+      } finally { clearTimeout(timer); }
+    }
 
-        let highestAlert = "GREEN";
+    function initializeMap() {
+      if (typeof L === 'undefined') {
+        document.getElementById('map').textContent = 'Map unavailable. Check the internet connection and reload.';
+        return;
+      }
+      map = L.map('map').setView([13.053, 77.617], 14);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+      sensorLayerGroup = L.layerGroup().addTo(map);
+      bypassLayerGroup = L.layerGroup().addTo(map);
+      detourLayerGroup = L.layerGroup();
+      L.control.layers(null, {
+        'Telemetry sensors': sensorLayerGroup,
+        'Illustrative bypass trace': bypassLayerGroup
+      }, { collapsed: false }).addTo(map);
+      // Teammate's alternative-path overlay. No road passability is inferred.
+      const routes = [
+        { coords: [[13.0515, 77.6195], [13.0485, 77.6183], [13.0458, 77.6168]], color: '#ef4444', text: 'Monitored vicinity near Gate 4; road inundation is not directly measured.' },
+        { coords: [[13.0485, 77.6183], [13.0472, 77.6135], [13.0455, 77.6050], [13.0442, 77.5960]], color: '#10b981', text: 'Illustrative alternative toward Hebbal / Bellary Road. Passability unverified.' },
+        { coords: [[13.0535, 77.6155], [13.0575, 77.6110], [13.0610, 77.6030], [13.0635, 77.5945]], color: '#10b981', text: 'Illustrative northern alternative. Passability unverified.' }
+      ];
+      routes.forEach(route => L.polyline(route.coords, { color: route.color, weight: 6, opacity: 0.9 })
+        .bindPopup(escapeHtml(route.text)).addTo(detourLayerGroup));
+    }
 
-        for (const [id, s] of Object.entries(data)) {
-          if (s.alert_level === "RED") highestAlert = "RED";
-          else if (s.alert_level === "ORANGE" && highestAlert !== "RED") highestAlert = "ORANGE";
-          else if (s.alert_level === "YELLOW" && highestAlert === "GREEN") highestAlert = "YELLOW";
-
-          const card = document.createElement("div");
-          card.className = `card ${s.alert_level}`;
-          card.innerHTML = `
-            <div class="card-title">
-              <span>${id}: ${s.name}</span>
-              <span class="depth-stat" style="color: ${colorMap[s.alert_level] || '#fff'}">${s.water_depth_m.toFixed(2)} m</span>
-            </div>
-            <div class="lead-time">Lead Time: ${s.lead_time}</div>
-            <div style="font-size: 0.8rem; color: #94a3b8;">Rise Rate: +${s.rate_of_rise_cm_min} cm/min | Updated: ${s.last_updated}</div>
-          `;
-          container.appendChild(card);
-
-          if (markers[id]) {
-            markers[id].setStyle({ fillColor: colorMap[s.alert_level] || "#22c55e" });
-            markers[id].setPopupContent(`<b>${id}: ${s.name}</b><br>Level: ${s.alert_level}<br>Depth: ${s.water_depth_m.toFixed(2)} m<br>Lead Time: ${s.lead_time}`);
+    function initializeChart() {
+      if (typeof Chart === 'undefined') {
+        document.getElementById('history-status').textContent = 'Chart unavailable. Check the internet connection and reload.';
+        return;
+      }
+      hydroChart = new Chart(document.getElementById('hydrographChart').getContext('2d'), {
+        type: 'line',
+        data: { datasets: catalog.map((sensor, index) => ({
+          label: sensor.Sensor_ID,
+          data: [], borderColor: ['#38bdf8', '#eab308', '#ef4444'][index % 3],
+          borderWidth: 2, pointRadius: 2, tension: 0, spanGaps: false
+        })) },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          scales: {
+            x: { type: 'linear', ticks: { color: '#94a3b8', maxTicksLimit: 5, callback: value => new Date(value).toLocaleTimeString() }, grid: { color: '#1e293b' } },
+            y: { beginAtZero: true, suggestedMax: 2, ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' }, title: { display: true, text: 'Depth (m)', color: '#94a3b8' } }
+          },
+          plugins: {
+            legend: { labels: { color: '#f8fafc', boxWidth: 12, font: { size: 11 } } },
+            tooltip: { callbacks: { title: items => items.length ? timeLabel(items[0].parsed.x) : '' } }
           }
         }
+      });
+    }
 
-        // Toggle Safe Commuter Detour Routes when SENSOR_03 hits RED alert
-        const sensor3Red = data["SENSOR_03"] && data["SENSOR_03"].alert_level === "RED";
-        const detourBanner = document.getElementById("detour-banner");
-        if (sensor3Red) {
-          detourBanner.style.display = "block";
-          if (!isDetourActive) {
-            detourLayerGroup.addTo(map);
-            isDetourActive = true;
-          }
-        } else {
-          detourBanner.style.display = "none";
-          if (isDetourActive) {
-            map.removeLayer(detourLayerGroup);
-            isDetourActive = false;
-          }
+    function buildHistoryPoints(rows) {
+      const seen = new Set();
+      const points = [];
+      let previous = null;
+      for (const row of rows) {
+        const x = row.observed_at ? Date.parse(row.observed_at) : NaN;
+        if (seen.has(row.reading_id) || !Number.isFinite(x) || !Number.isFinite(row.water_depth_m)) continue;
+        seen.add(row.reading_id);
+        if (previous !== null && x - previous > gapLimitMs) points.push({ x: (previous + x) / 2, y: null });
+        points.push({ x, y: row.water_depth_m });
+        previous = x;
+      }
+      return points;
+    }
+
+    function setBadge(text, level = 'UNKNOWN') {
+      const badge = document.getElementById('system-badge');
+      badge.textContent = text;
+      badge.style.backgroundColor = colorMap[level];
+      badge.style.color = level === 'YELLOW' ? '#000' : '#fff';
+    }
+
+    function renderStatus(data) {
+      const container = document.getElementById('sensor-cards');
+      container.innerHTML = '';
+      let freshCount = 0;
+      let highest = 'GREEN';
+      for (const sensor of catalog) {
+        const id = sensor.Sensor_ID;
+        const reading = data[id];
+        const fresh = reading && reading.data_status === 'fresh';
+        const level = fresh && colorMap[reading.alert_level] ? reading.alert_level : 'UNKNOWN';
+        if (fresh) {
+          freshCount += 1;
+          if (alertRank[reading.alert_level] > alertRank[highest]) highest = reading.alert_level;
         }
-
-        // Update Live Hydrograph Chart
-        const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        hydroChart.data.labels.push(timeLabel);
-        hydroChart.data.datasets[0].data.push(data["SENSOR_01"] ? data["SENSOR_01"].water_depth_m : 0);
-        hydroChart.data.datasets[1].data.push(data["SENSOR_02"] ? data["SENSOR_02"].water_depth_m : 0);
-        hydroChart.data.datasets[2].data.push(data["SENSOR_03"] ? data["SENSOR_03"].water_depth_m : 0);
-
-        if (hydroChart.data.labels.length > 15) {
-          hydroChart.data.labels.shift();
-          hydroChart.data.datasets.forEach(ds => ds.data.shift());
+        const card = document.createElement('div');
+        card.className = `card ${level}`;
+        card.dataset.sensorId = id;
+        const name = reading ? reading.name : 'Awaiting first observation';
+        const depth = reading && Number.isFinite(reading.water_depth_m) ? `${reading.water_depth_m.toFixed(2)} m` : '—';
+        const state = reading ? `${reading.data_status.toUpperCase()} · last level ${reading.alert_level}` : 'NO DATA';
+        const rate = reading && Number.isFinite(reading.rate_of_rise_cm_min) ? `${reading.rate_of_rise_cm_min.toFixed(2)} cm/min (${reading.rate_source})` : 'Unknown';
+        card.innerHTML = `
+          <div class="card-title"><span>${escapeHtml(id)}: ${escapeHtml(name)}</span><span class="depth-stat" style="color:${colorMap[level]}">${depth}</span></div>
+          <div class="status-note">${escapeHtml(state)}</div>
+          ${reading ? `<div class="lead-time">Assumed travel window: ${escapeHtml(reading.lead_time)} (unvalidated)</div>` : ''}
+          <div class="status-note">Rise / fall: ${escapeHtml(rate)}</div>
+          <div class="status-note">Observed: ${escapeHtml(timeLabel(reading && reading.observed_at))}</div>
+          <div class="status-note">Source: ${escapeHtml(reading ? reading.source : 'unknown')}</div>`;
+        container.appendChild(card);
+        if (markers[id]) {
+          markers[id].setStyle({ fillColor: colorMap[level] });
+          markers[id].setPopupContent(`<b>${escapeHtml(id)}</b><br>${depth}<br>${escapeHtml(state)}`);
         }
-        hydroChart.update();
+      }
+      if (highest !== 'GREEN') setBadge(`${highest} ALERT${freshCount < catalog.length ? ' · COVERAGE INCOMPLETE' : ''}`, highest);
+      else if (!freshCount) setBadge(Object.keys(data).length ? 'STALE / UNKNOWN DATA' : 'NO SENSOR DATA');
+      else if (freshCount < catalog.length) setBadge('PARTIAL SENSOR DATA');
+      else setBadge('ALL SENSORS NORMAL', 'GREEN');
 
-        const badge = document.getElementById("system-badge");
-        badge.innerText = highestAlert === "GREEN" ? "SYSTEM NORMAL" : `${highestAlert} SURGE ACTIVE`;
-        badge.style.backgroundColor = colorMap[highestAlert];
-        badge.style.color = highestAlert === "YELLOW" ? "#000" : "#fff";
-
-      } catch (err) {
-        console.error("Telemetry fetch error:", err);
+      const gate = data.SENSOR_03;
+      const freshRed = gate && gate.data_status === 'fresh' && gate.alert_level === 'RED';
+      const staleRed = gate && gate.data_status !== 'fresh' && gate.alert_level === 'RED';
+      const banner = document.getElementById('detour-banner');
+      banner.style.display = freshRed || staleRed ? 'block' : 'none';
+      banner.textContent = freshRed
+        ? `${gate.source === 'simulated' ? 'SIMULATED' : 'PROTOTYPE'} RED alert at Gate 4. Alternative paths are illustrative; road passability is unverified.`
+        : 'Last Gate 4 reading was RED; current conditions are unknown. Road passability is unverified.';
+      if (map && detourLayerGroup) {
+        if (freshRed && !map.hasLayer(detourLayerGroup)) detourLayerGroup.addTo(map);
+        else if (!freshRed && map.hasLayer(detourLayerGroup)) map.removeLayer(detourLayerGroup);
       }
     }
 
-    setInterval(updateStatus, 2000);
-    updateStatus();
+    async function refreshHistory() {
+      if (!hydroChart) return;
+      const responses = await Promise.allSettled(catalog.map(sensor => getJson(`/api/sensors/history/${encodeURIComponent(sensor.Sensor_ID)}?limit=120`)));
+      let count = 0;
+      let errors = 0;
+      responses.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          const points = buildHistoryPoints(result.value);
+          hydroChart.data.datasets[index].data = points;
+          count += points.filter(point => point.y !== null).length;
+        } else {
+          hydroChart.data.datasets[index].data = [];
+          errors += 1;
+        }
+      });
+      hydroChart.update();
+      document.getElementById('history-status').textContent = errors
+        ? 'Some stored history is unavailable; affected curves are hidden.'
+        : count ? 'Stored observation times · missing intervals remain gaps · legacy times omitted.' : 'No timestamped observations yet.';
+    }
+
+    async function poll() {
+      try { renderStatus(await getJson('/api/sensors/status')); }
+      catch (error) {
+        renderStatus({});
+        setBadge('CONNECTION UNAVAILABLE');
+        document.getElementById('sensor-cards').textContent = 'Unable to read current telemetry. Retrying...';
+      }
+      await refreshHistory();
+      setTimeout(poll, 2000); // Schedule after completion to avoid overlapping requests.
+    }
+
+    async function initialize() {
+      initializeMap();
+      try {
+        const sensors = await getJson('/api/spatial/sensors');
+        catalog = sensors.features.map(feature => ({ ...feature.properties, coordinates: feature.geometry.coordinates }));
+        if (map) for (const sensor of catalog) {
+          const [lon, lat] = sensor.coordinates;
+          markers[sensor.Sensor_ID] = L.circleMarker([lat, lon], {
+            radius: 9, fillColor: colorMap.UNKNOWN, color: '#fff', weight: 2, fillOpacity: 0.9
+          }).addTo(sensorLayerGroup).bindPopup(`${escapeHtml(sensor.Sensor_ID)}: no data`);
+        }
+        initializeChart();
+      } catch (error) {
+        setBadge('SENSOR CATALOG UNAVAILABLE');
+        document.getElementById('sensor-cards').textContent = 'Sensor locations could not be loaded. Reload to retry.';
+        return;
+      }
+      try {
+        const bypass = await getJson('/api/spatial/bypass');
+        const text = `Illustrative bypass trace: ${(bypass.metadata.geometry_length_m / 1000).toFixed(2)} km mapped. Alignment awaits GIS verification.`;
+        document.getElementById('spatial-status').textContent = text;
+        if (map) L.geoJSON(bypass, {
+          style: { color: '#00e5ff', weight: 6, opacity: 0.9, dashArray: '10, 6' },
+          onEachFeature: (feature, layer) => layer.bindPopup(escapeHtml(text))
+        }).addTo(bypassLayerGroup);
+      } catch (error) {
+        document.getElementById('spatial-status').textContent = 'Bypass mapping unavailable; sensor monitoring continues.';
+      }
+      await poll();
+    }
+
+    const initialLoad = initialize();
   </script>
 </body>
 </html>
