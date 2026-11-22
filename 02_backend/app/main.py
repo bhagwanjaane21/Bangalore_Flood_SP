@@ -70,7 +70,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return JSONResponse(status_code=503, content={
                 "status": "unhealthy", "database": "unavailable", "mode": "prototype",
             })
-        return {"status": "ok", "database": "ready", "mode": "prototype"}
+        result = {"status": "ok", "database": "ready", "mode": "prototype"}
+        if settings.simulation_run_id:
+            result["simulation_run_id"] = settings.simulation_run_id
+        return result
 
     @application.get("/")
     def serve_dashboard():

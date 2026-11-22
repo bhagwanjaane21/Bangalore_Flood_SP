@@ -73,9 +73,9 @@ $env:STREAM_CORS_ORIGINS = 'http://localhost:5173'
 ```
 
 For a phone on the same LAN, bind with `--host 0.0.0.0` and open
-`http://<laptop-LAN-IP>:8000/`. The frontend team must replace hardcoded telemetry
-URLs using `127.0.0.1` with relative/configured API URLs for this to work. The
-telemetry endpoints remain a local prototype without authentication.
+`http://<laptop-LAN-IP>:8000/`. The merged dashboard uses relative API URLs.
+Access from a physical second device remains unverified. The telemetry endpoints
+remain a local prototype without authentication.
 
 ## Tests
 
@@ -91,4 +91,13 @@ Phase 3 uses one alert engine for ingestion and status, with persisted reasons,
 trend evidence, recovery hysteresis and `GET /api/alerts`. See
 [the API contract and prototype rules](API.md). Notification delivery and scenario
 controls remain separate checkpoints in `05_docs_and_reviews/backend_plan.md`.
-This checkpoint makes no frontend changes and sends no external messages.
+Phase 4 adds [finite, repeatable simulation scenarios](SIMULATIONS.md):
+
+```powershell
+python 02_backend/simulate.py --list
+python 02_backend/simulate.py progressing-surge --speed 5 --keep-server
+```
+
+The managed demo starts on port 8001 with a fresh database and saves a verified
+run report. It leaves the dashboard available with `--keep-server`; Ctrl+C stops
+the server. No frontend changes or notification delivery are part of Phase 4.
