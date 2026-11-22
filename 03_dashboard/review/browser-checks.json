@@ -1,0 +1,22 @@
+{
+  "testedWidths": [
+    360,
+    390,
+    768,
+    800,
+    801,
+    1366
+  ],
+  "horizontalOverflow": false,
+  "states": [
+    "empty",
+    "sustained-rise",
+    "held-recovery",
+    "confirmed-recovery",
+    "connection-error",
+    "stale"
+  ],
+  "staleCurrentActions": 0,
+  "historicalEventsRetained": 3,
+  "mapAndChartLoaded": true
+}
