@@ -1,5 +1,12 @@
 # Frontend PR review and backend integration findings
 
+**Current integration status:** Original teammate PRs
+[#1](https://github.com/bhagwanjaane21/Bangalore_Flood_SP/pull/1) and
+[#2](https://github.com/bhagwanjaane21/Bangalore_Flood_SP/pull/2) are now merged
+into `main` with original commits and PR authorship preserved. Supporting fixes
+are maintained separately on `fix/frontend-integration`. The initial review
+below describes the earlier baseline and remains as historical evidence.
+
 **Branch scope:** This document is a review for backend compatibility. The
 current `backend/vernit` branch contains no frontend implementation changes or
 teammate feature merges. The earlier combined prototype is preserved separately
@@ -132,3 +139,23 @@ values establishes actual corridor flood-wave travel time.
 
 No source fix, full browser rendering check, trained-model evaluation or field
 validation was performed in this planning checkpoint.
+
+## Frontend integration verification — 22 November 2026
+
+- Original PR #1 merged as `b22ad79`; PR #2 merged as `972040b` after maintainer
+  conflict resolution `68651df`. The original teammate heads `2dceecc` and
+  `2f7492f` remain ancestors of main. Neither contribution was reauthored.
+- Fixes are isolated on `fix/frontend-integration`; `backend/vernit` stays at
+  `7a06787`. No backend implementation/configuration changes are part of this fix.
+- The UI uses same-origin APIs and actual persisted observation times, avoids
+  fabricated zero readings and duplicate chart points, distinguishes no data,
+  partial data and stale data, and clears illustrative paths when data is stale.
+- The mapped bypass coordinates are unchanged from PR #1. Its calculated length
+  is shown as approximately 0.99 km; the reported 1.6 km is preserved separately.
+  GIS alignment and road passability are not claimed as verified.
+- Validation commands: `python -B -m pytest 02_backend/tests 03_dashboard/tests -q
+  -p no:cacheprovider` and `node --test 03_dashboard/tests/dashboard.test.cjs`.
+  These cover 62 existing backend tests, two real-server frontend API tests, and
+  dashboard behavior tests for no-data/stale states, errors/recovery, overlays,
+  historical refresh, chart gaps and configurable gap thresholds.
+- Browser rendering and access from a physical second device remain unverified.

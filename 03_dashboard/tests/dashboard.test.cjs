@@ -14,7 +14,7 @@ function reading(level = 'GREEN', dataStatus = 'fresh') {
     observed_at: '2026-01-01T00:00:00Z', lead_time: 'Unvalidated window' };
 }
 
-async function boot(history = []) {
+async function boot(history = [], config = undefined) {
   const elements = new Map();
   const calls = [];
   const state = { status: {}, history, failStatus: false, failHistory: false };
@@ -36,7 +36,7 @@ async function boot(history = []) {
   const map = Object.assign(layer(), {
     setView() { return this; }, hasLayer(item) { return this.layers.has(item); }, removeLayer(item) { this.layers.delete(item); }
   });
-  const context = vm.createContext({ document, console, AbortController,
+  const context = vm.createContext({ document, console, AbortController, STREAM_DASHBOARD_CONFIG: config,
     setTimeout() { return 1; }, clearTimeout() {},
     L: { map: () => map, tileLayer: layer, layerGroup: layer, polyline: layer,
       circleMarker: layer, geoJSON: layer, control: { layers: layer } },
@@ -127,4 +127,15 @@ test('history uses stored times, ignores duplicates/legacy times, and keeps gaps
   await app.poll();
   assert.equal(app.read('hydroChart.data.datasets[0].data.length'), 0);
   assert.match(app.element('history-status').textContent, /unavailable/);
+});
+
+test('history gap configuration works without requiring backend API changes', async () => {
+  const history = [
+    { reading_id: 1, observed_at: '2026-01-01T00:00:00Z', water_depth_m: 0.2 },
+    { reading_id: 2, observed_at: '2026-01-01T00:01:10Z', water_depth_m: 0.3 },
+  ];
+  const configured = await boot(history, { historyGapSeconds: 60 });
+  assert.equal(configured.read('hydroChart.data.datasets[0].data.length'), 3);
+  const invalid = await boot(history, { historyGapSeconds: -1 });
+  assert.equal(invalid.read('hydroChart.data.datasets[0].data.length'), 2);
 });

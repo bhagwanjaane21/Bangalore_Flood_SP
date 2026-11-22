@@ -5,6 +5,17 @@ This dashboard combines Vanshika's PR #1 (bypass layer and hydrograph) and PR #2
 supporting fixes are maintained separately on `fix/frontend-integration`.
 `backend/vernit` contains no frontend implementation changes.
 
+Original contributions by **vanshika-exe** were merged through their own PRs:
+
+- [PR #1](https://github.com/bhagwanjaane21/Bangalore_Flood_SP/pull/1): bypass
+  trace, layer controls and live hydrograph; merge commit `b22ad79`.
+- [PR #2](https://github.com/bhagwanjaane21/Bangalore_Flood_SP/pull/2): conditional
+  detour illustration; merge commit `972040b`. A maintainer merge reconciled the
+  overlap while retaining her original commit `2f7492f`.
+
+The separate frontend-integration PR contains API wiring, data-state fixes,
+tests and documentation on top of those merged contributions.
+
 Start the backend with `python 02_backend/run.py` and open its `/` page. Serve the
 page through FastAPI so the relative API URLs use the same origin. A standalone
 file URL or unrelated static server is not the supported demo setup.

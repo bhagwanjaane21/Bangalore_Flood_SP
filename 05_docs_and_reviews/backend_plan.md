@@ -160,7 +160,7 @@ integration branch preserves that head for anyone who already fetched it.
 | 3 | Not started | — |
 | 4 | Not started | — |
 | 5 | Not started | — |
-| 6 | Not started | — |
+| 6 | In progress | Original teammate frontend PRs #1 and #2 merged separately into main; supporting frontend integration fixes and real-server API tests prepared on `fix/frontend-integration`. Backend branch remains separate. Visual/LAN checks and scenario rehearsal remain pending. |
 
 ### Checkpoint 1 verification — 22 November 2026
 
