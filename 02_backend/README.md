@@ -32,6 +32,9 @@ errors. An invalid database path or incompatible schema fails startup visibly.
 Phase 1 databases are migrated on startup without removing their records. Old
 timestamps have unknown timezone, so they remain available as legacy timestamps
 with unknown freshness rather than being relabelled as UTC.
+Phase 3 adds stored alert decisions, per-node recovery state and alert events.
+Startup initializes the latest historical state without generating old alert
+events; restarting preserves recovery progress and does not replay notifications.
 
 The previously committed `02_backend/app/telemetry.db` is no longer tracked or
 used by default. Its existing local copy is retained. If you need those records,
@@ -56,6 +59,9 @@ Environment overrides are optional. `.env.example` lists supported variables;
 | `STREAM_HOST` | `127.0.0.1` | Listen address; can also be set by `--host`. |
 | `STREAM_PORT` | `8000` | Port 1–65535; can also be set by `--port`. |
 | `STREAM_STALE_AFTER_SECONDS` | `90` | Positive age limit for telemetry freshness. Simulated observations use real receipt age; other sources use both receipt and observation age. |
+| `STREAM_RECOVERY_SAMPLES` | `2` | Distinct fresh observations required before lowering an alert. |
+| `STREAM_RECOVERY_MARGIN_M` | `0.05` | Recovery depth margin below the current alert threshold; finite value in [0, 0.3). |
+| `STREAM_TREND_MIN_SPAN_SECONDS` | `10` | Minimum observation-time span for a rise-rate warning; finite positive value. |
 | `STREAM_CORS_ORIGINS` | `http://localhost:5500,http://127.0.0.1:5500` | Comma-separated frontend origins for separate development servers. Same-origin dashboard requests need no CORS configuration. |
 
 Example: use a separate demo database and allow a frontend on port 5173:
@@ -81,7 +87,8 @@ telemetry endpoints remain a local prototype without authentication.
 Tests use isolated databases and include real launcher subprocesses. They do not
 send Telegram messages or modify the legacy sample database.
 
-Phase 2 adds validated telemetry, stored history, freshness metadata and spatial
-APIs. See [the API contract and examples](API.md). Existing depth thresholds are
-preserved; alert-engine improvements and notification repair remain separate
-checkpoints in `05_docs_and_reviews/backend_plan.md`.
+Phase 3 uses one alert engine for ingestion and status, with persisted reasons,
+trend evidence, recovery hysteresis and `GET /api/alerts`. See
+[the API contract and prototype rules](API.md). Notification delivery and scenario
+controls remain separate checkpoints in `05_docs_and_reviews/backend_plan.md`.
+This checkpoint makes no frontend changes and sends no external messages.

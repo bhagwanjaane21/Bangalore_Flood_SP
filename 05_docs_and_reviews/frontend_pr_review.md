@@ -4,14 +4,15 @@
 [#1](https://github.com/bhagwanjaane21/Bangalore_Flood_SP/pull/1) and
 [#2](https://github.com/bhagwanjaane21/Bangalore_Flood_SP/pull/2) are now merged
 into `main` with original commits and PR authorship preserved. Supporting fixes
-are maintained separately on `fix/frontend-integration`. The initial review
+were merged separately through PR #4; the completed frontend-fix branch and the
+temporary prototype backup were retired during Phase 3 cleanup. The initial review
 below describes the earlier baseline and remains as historical evidence.
 
 **Branch scope:** This document is a review for backend compatibility. The
-current `backend/vernit` branch contains no frontend implementation changes or
-teammate feature merges. The earlier combined prototype is preserved separately
-on `integration/prototype`; the original teammate PRs remain available for the
-team's normal review and merge into `main`.
+current `backend/vernit` work contains no additional frontend implementation
+changes relative to main. The merged frontend is inherited by syncing from main.
+The earlier prototype backup was retired after the original PRs and supporting
+fixes merged successfully. Their commits and PR authorship remain in main.
 
 Reviewed on 22 November 2026. This is a local review; no GitHub review, message,
 merge, or remote branch modification was performed.
