@@ -1,5 +1,11 @@
 # Frontend PR review and backend integration findings
 
+**Branch scope:** This document is a review for backend compatibility. The
+current `backend/vernit` branch contains no frontend implementation changes or
+teammate feature merges. The earlier combined prototype is preserved separately
+on `integration/prototype`; the original teammate PRs remain available for the
+team's normal review and merge into `main`.
+
 Reviewed on 22 November 2026. This is a local review; no GitHub review, message,
 merge, or remote branch modification was performed.
 

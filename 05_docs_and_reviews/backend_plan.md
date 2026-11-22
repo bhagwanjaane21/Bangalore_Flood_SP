@@ -121,6 +121,11 @@ times and physical actuation are outside the software prototype's completion cla
 - Keep frontend source changes with the frontend team. Backend owns `02_backend/`,
   backend tests/configuration, and backend documentation. Coordinate ownership of
   `04_notifications/` before modifying it if another teammate is maintaining it.
+- Do not merge teammate frontend PR branches into `backend/vernit` or implement
+  their frontend features here. Review and merge those contributions through the
+  teammate's original PRs into `main`; agree on frontend improvements separately.
+  This branch may still contain all repository folders because a branch is a full
+  project snapshot. Ownership is defined by its changes relative to `main`.
 - Use the checkpoint commits above. Update this ledger with the commit and test
   result; each later implementation commit should include its ledger update.
 - When publishing is requested, use `git push -u origin backend/vernit` and open a
@@ -129,6 +134,21 @@ times and physical actuation are outside the software prototype's completion cla
 - Fetch upstream progress before integrating. Avoid force-pushing shared work.
 - Frontend PRs need reconciliation; do not merge both unchanged. See the separate
   PR review. Test the combined frontend/backend before merging into `main`.
+
+### Branch ownership correction — 22 November 2026
+
+At the user's request, `backend/vernit` was returned to the backend-only Phase 2
+checkpoint (`68da8f7`) before adding this scope clarification. The previously
+combined frontend/backend prototype is preserved on the published
+`integration/prototype` branch at `2771a6e`, including all original teammate
+commits. No contribution has been discarded.
+
+The original frontend PRs #1 and #2 remain open on GitHub. They have not been
+merged into `main`. The backend branch changes no files in `01_spatial_data/`,
+`03_dashboard/`, or `04_notifications/` relative to the reviewed main baseline.
+The scope correction replaces the backend branch's published merge history using
+an exact `--force-with-lease` check against the previously published head; the
+integration branch preserves that head for anyone who already fetched it.
 
 ## Progress ledger
 
