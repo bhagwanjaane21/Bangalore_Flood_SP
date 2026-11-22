@@ -1,4 +1,4 @@
-# STREAM backend: startup and Phase 1
+# STREAM backend: startup and telemetry APIs
 
 Use Python 3.10 or newer. The checkpoint was tested with Python 3.13.6.
 Run these PowerShell commands from the repository root:
@@ -29,6 +29,9 @@ Startup creates `02_backend/data/telemetry.db` and its schema if missing. A fres
 checkout starts empty; it does not require a committed database or sample rows.
 Data survives restart. Connections are closed after every operation, including
 errors. An invalid database path or incompatible schema fails startup visibly.
+Phase 1 databases are migrated on startup without removing their records. Old
+timestamps have unknown timezone, so they remain available as legacy timestamps
+with unknown freshness rather than being relabelled as UTC.
 
 The previously committed `02_backend/app/telemetry.db` is no longer tracked or
 used by default. Its existing local copy is retained. If you need those records,
@@ -52,6 +55,7 @@ Environment overrides are optional. `.env.example` lists supported variables;
 | `STREAM_DB_PATH` | `data/telemetry.db` | Absolute path, or relative to `02_backend`, independent of working directory. Parent directories are created at startup. |
 | `STREAM_HOST` | `127.0.0.1` | Listen address; can also be set by `--host`. |
 | `STREAM_PORT` | `8000` | Port 1–65535; can also be set by `--port`. |
+| `STREAM_STALE_AFTER_SECONDS` | `90` | Positive age limit for telemetry freshness. Simulated observations use real receipt age; other sources use both receipt and observation age. |
 | `STREAM_CORS_ORIGINS` | `http://localhost:5500,http://127.0.0.1:5500` | Comma-separated frontend origins for separate development servers. Same-origin dashboard requests need no CORS configuration. |
 
 Example: use a separate demo database and allow a frontend on port 5173:
@@ -77,7 +81,7 @@ telemetry endpoints remain a local prototype without authentication.
 Tests use isolated databases and include real launcher subprocesses. They do not
 send Telegram messages or modify the legacy sample database.
 
-Phase 1 preserves existing telemetry payloads, response keys and depth thresholds.
-History/spatial bypass serving, stricter telemetry validation, improved alert
-logic, and notification repair remain separate checkpoints in
-`05_docs_and_reviews/backend_plan.md`.
+Phase 2 adds validated telemetry, stored history, freshness metadata and spatial
+APIs. See [the API contract and examples](API.md). Existing depth thresholds are
+preserved; alert-engine improvements and notification repair remain separate
+checkpoints in `05_docs_and_reviews/backend_plan.md`.

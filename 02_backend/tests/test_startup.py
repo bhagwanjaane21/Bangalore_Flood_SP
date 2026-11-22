@@ -77,10 +77,11 @@ def test_existing_telemetry_contract(settings, depth, level):
             "rate_of_rise_cm_min": 2.0, "battery_voltage": 3.8,
         })
         assert response.status_code == 200
-        assert response.json() == {
+        expected = {
             "status": "logged", "node_id": "SENSOR_01", "alert_level": level,
             "lead_time": "35–45 mins", "recorded_depth_m": depth,
         }
+        assert {key: response.json()[key] for key in expected} == expected
         status = client.get("/api/sensors/status").json()["SENSOR_01"]
         assert status["alert_level"] == level
         assert status["water_depth_m"] == depth
