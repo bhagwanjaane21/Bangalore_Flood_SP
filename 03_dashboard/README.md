@@ -16,6 +16,35 @@ Original contributions by **vanshika-exe** were merged through their own PRs:
 The separate frontend-integration PR contains API wiring, data-state fixes,
 tests and documentation on top of those merged contributions.
 
+Vanshika's [PR #8](https://github.com/bhagwanjaane21/Bangalore_Flood_SP/pull/8)
+adds the alert-history panel and sensor decision details (original commit
+`9caa0d1`). The follow-up fixes stay on `fix/frontend-integration`; her original
+PR is merged first with its authorship preserved. This work changes dashboard
+files only and does not update `backend/vernit`.
+
+## Alert timeline and decision explanations
+
+- The timeline reloads the latest 20 persisted transitions, newest first, with
+  source labels and stable event IDs. Simulated events say `simulated (prototype)`.
+- `Evidence when recorded` describes historical freshness. It never establishes
+  current conditions; the panel states this explicitly. Missing provenance is
+  shown as unknown. A timeline request failure leaves current sensor cards intact.
+- Suggested actions appear only on fresh cards. Stale/unknown cards retain the
+  backend's last explanation and show a data warning, without a current action or
+  recovery confirmation.
+- `alert_kind: held` means recovery is being checked; `recovery` means confirmed,
+  even when `recovery_count` resets to zero or the resulting level remains ORANGE.
+  Configured targets and release depths come from the backend reason. The UI
+  does not assume two readings or a 0.05 m margin. Missing decision kinds stay
+  unavailable rather than creating recovery evidence.
+
+Twelve regression cases were added for the three PR review findings. They fail
+on the original PR and pass with the follow-up fixes. They cover RED/GREEN with
+stale/unknown data, configurable held recovery, confirmed/partial recovery,
+legacy decision metadata, historical provenance, polling/refresh/error recovery
+and safe escaping. Desktop/mobile visual verification and physical-device LAN
+access remain separate from these automated behavior checks.
+
 Start the backend with `python 02_backend/run.py` and open its `/` page. Serve the
 page through FastAPI so the relative API URLs use the same origin. A standalone
 file URL or unrelated static server is not the supported demo setup.

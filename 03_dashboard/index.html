@@ -76,6 +76,7 @@
       <p id="history-status" class="status-note">Loading stored observations...</p>
 
       <h3 style="margin: 6px 0 0 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Alert History</h3>
+      <p id="alert-history-note" class="status-note">Historical transitions: freshness describes evidence when recorded, not current conditions.</p>
       <div id="alert-history" class="history-panel" aria-live="polite">
         <p class="status-note">Loading alert transitions...</p>
       </div>
@@ -189,14 +190,22 @@
 
     function formatRecoveryProgress(reading) {
       if (!reading) return 'Awaiting data';
-      const count = Number.isFinite(reading.recovery_count) ? reading.recovery_count : 0;
-      if (reading.alert_level === 'GREEN') {
-        return count > 0 ? `Recovered (${count}/2 steps)` : 'Normal (no active alert)';
-      }
       if (reading.data_status !== 'fresh') {
-        return `Paused (${count}/2 fresh below-threshold steps; stale/unknown data)`;
+        return 'Current recovery status unknown; last decision is historical.';
       }
-      return `${count}/2 consecutive fresh readings ≥ 0.05 m below entry threshold`;
+      // The backend reason contains its configured target and release depth.
+      // A confirmed recovery resets recovery_count, and may still leave an alert active.
+      if (reading.alert_kind === 'recovery') return 'Recovery confirmed';
+      if (reading.alert_kind === 'held') {
+        const count = reading.recovery_count;
+        const progress = Number.isInteger(count) && count > 0
+          ? ` (${count} qualifying observation${count === 1 ? '' : 's'})` : '';
+        return `Recovery being checked${progress}`;
+      }
+      if (reading.alert_kind === 'depth' || reading.alert_kind === 'trend') {
+        return reading.alert_level === 'GREEN' ? 'No active alert' : 'No recovery confirmation recorded';
+      }
+      return 'Recovery status unavailable';
     }
 
     function setBadge(text, level = 'UNKNOWN') {
@@ -237,7 +246,7 @@
         const explanationHtml = reading ? `
           <div class="explanation-box">
             <div class="reason-text">Reason: ${escapeHtml(reasonText)}${escapeHtml(flagsText)}</div>
-            ${reading.alert_action ? `<div class="status-note">Action: ${escapeHtml(reading.alert_action)}</div>` : ''}
+            ${fresh && reading.alert_action ? `<div class="status-note">Action: ${escapeHtml(reading.alert_action)}</div>` : ''}
             <div class="trend-text">Sustained trend: ${escapeHtml(formatSustainedTrend(reading))}</div>
             <div class="recovery-text">Recovery progress: ${escapeHtml(formatRecoveryProgress(reading))}</div>
           </div>` : '';
@@ -290,16 +299,19 @@
         const item = document.createElement('div');
         const level = colorMap[event.new_level] ? event.new_level : 'UNKNOWN';
         item.className = `alert-event ${level}`;
+        item.dataset.eventId = String(event.event_id);
         const depthText = Number.isFinite(event.water_depth_m) ? `${event.water_depth_m.toFixed(2)} m` : '—';
         const kindLabel = event.event_type ? event.event_type.toUpperCase() : 'TRANSITION';
-        const statusAtEvent = event.data_status_at_event ? ` · ${event.data_status_at_event}` : '';
+        const statusAtEvent = event.data_status_at_event || 'unknown';
+        const source = event.source === 'simulated' ? 'simulated (prototype)' : (event.source || 'unknown');
         item.innerHTML = `
           <div class="event-header">
             <span>${escapeHtml(event.node_id)}: ${escapeHtml(event.previous_level)} → ${escapeHtml(event.new_level)}</span>
             <span style="color:${colorMap[level]}">${escapeHtml(kindLabel)}</span>
           </div>
           <div class="reason-text">${escapeHtml(event.reason || 'State transition')}</div>
-          <div class="status-note">Depth: ${escapeHtml(depthText)} · Observed: ${escapeHtml(timeLabel(event.observed_at))}${escapeHtml(statusAtEvent)}</div>`;
+          <div class="status-note">Depth: ${escapeHtml(depthText)} · Observed: ${escapeHtml(timeLabel(event.observed_at))}</div>
+          <div class="status-note">Source: ${escapeHtml(source)} · Evidence when recorded: ${escapeHtml(statusAtEvent)}</div>`;
         panel.appendChild(item);
       }
     }

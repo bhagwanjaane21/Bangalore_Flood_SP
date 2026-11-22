@@ -21,6 +21,7 @@ function reading(level = 'GREEN', dataStatus = 'fresh', overrides = {}) {
     lead_time: 'Unvalidated window',
     alert_reason: level === 'GREEN' ? 'Within normal depth and rise thresholds' : `Threshold triggered for ${level}`,
     alert_action: level === 'GREEN' ? 'Continue routine monitoring' : 'Inspect corridor',
+    alert_kind: 'depth',
     trend_rate_cm_min: null,
     trend_sample_count: 1,
     recovery_count: 0,
@@ -134,6 +135,7 @@ test('sensor cards display alert reasons, sustained trends, recovery progress, a
       trend_rate_cm_min: 3.4,
       trend_sample_count: 4,
       recovery_count: 1,
+      alert_kind: 'held',
       quality_flags: ['abrupt_change'],
     }),
     SENSOR_02: reading('ORANGE', 'stale', {
@@ -149,11 +151,11 @@ test('sensor cards display alert reasons, sustained trends, recovery progress, a
   assert.match(card1, /Depth 0\.65 m &gt;= 0\.50 m YELLOW threshold/);
   assert.match(card1, /abrupt_change/);
   assert.match(card1, /\+3\.40 cm\/min \(4 samples\)/);
-  assert.match(card1, /1\/2 consecutive fresh readings/);
+  assert.match(card1, /Recovery being checked \(1 qualifying observation\)/);
 
   const card2 = app.element('sensor-cards').children[1].innerHTML;
   assert.match(card2, /Stale\/unknown warning: Last reading is 140s old/);
-  assert.match(card2, /Paused \(0\/2 fresh below-threshold steps/);
+  assert.match(card2, /Current recovery status unknown/);
 });
 
 test('alert history panel renders transitions from GET /api/alerts and handles errors', async () => {
@@ -225,4 +227,129 @@ test('history gap configuration works without requiring backend API changes', as
   assert.equal(configured.read('hydroChart.data.datasets[0].data.length'), 3);
   const invalid = await boot(history, { historyGapSeconds: -1 });
   assert.equal(invalid.read('hydroChart.data.datasets[0].data.length'), 2);
+});
+
+for (const dataStatus of ['stale', 'unknown']) {
+  for (const level of ['RED', 'GREEN']) {
+    test(`${dataStatus} ${level} cards suppress actions and current recovery claims`, async () => {
+      const app = await boot();
+      app.state.status = { SENSOR_01: reading(level, dataStatus, {
+        alert_kind: 'recovery', alert_action: 'CONTACT THE OPERATOR NOW',
+        data_warning: 'Current conditions cannot be established.',
+      }) };
+      await app.poll();
+      const card = app.element('sensor-cards').children[0].innerHTML;
+      assert.match(card, /Current conditions cannot be established/);
+      assert.doesNotMatch(card, /Action:|CONTACT THE OPERATOR NOW/);
+      assert.doesNotMatch(card, /Recovery confirmed|Normal \(no active alert\)|Recovered \(/);
+      assert.match(card, /Current recovery status unknown/);
+    });
+  }
+}
+
+test('fresh actions remain visible and are hidden again when data becomes unknown', async () => {
+  const app = await boot();
+  app.state.status = { SENSOR_01: reading('RED', 'fresh', { alert_action: 'Contact operator' }) };
+  await app.poll();
+  assert.match(app.element('sensor-cards').children[0].innerHTML, /Action: Contact operator/);
+  app.state.status.SENSOR_01.data_status = 'unknown';
+  await app.poll();
+  assert.doesNotMatch(app.element('sensor-cards').children[0].innerHTML, /Action:/);
+});
+
+test('held recovery preserves a configurable backend requirement without inventing a target', async () => {
+  const app = await boot();
+  app.state.status = { SENSOR_01: reading('RED', 'fresh', {
+    water_depth_m: 1.35, alert_kind: 'held', recovery_count: 2,
+    alert_reason: 'Holding RED: recovery observation 2/3 below 1.400 m.',
+  }) };
+  await app.poll();
+  const card = app.element('sensor-cards').children[0].innerHTML;
+  assert.match(card, /Holding RED: recovery observation 2\/3 below 1\.400 m\./);
+  assert.match(card, /Recovery being checked/);
+  assert.match(card, /2 qualifying observations/);
+  assert.doesNotMatch(card, /2\/2|0\.05 m|Recovery confirmed/);
+  assert.equal(app.read("document.getElementById('sensor-cards').children[0].className"), 'card RED');
+  // The backend can hold an alert with no qualifying observations yet.
+  app.state.status.SENSOR_01.recovery_count = 0;
+  app.state.status.SENSOR_01.alert_reason = 'Holding RED: recovery requires depth <= 1.400 m.';
+  await app.poll();
+  assert.match(app.element('sensor-cards').children[0].innerHTML, /Recovery being checked/);
+  assert.doesNotMatch(app.element('sensor-cards').children[0].innerHTML, /0\/2|0\.05 m/);
+});
+
+for (const level of ['GREEN', 'ORANGE']) {
+  test(`confirmed recovery to ${level} uses alert_kind even when its counter resets`, async () => {
+    const app = await boot();
+    app.state.status = { SENSOR_01: reading(level, 'fresh', {
+      alert_kind: 'recovery', recovery_count: 0,
+      alert_reason: `Recovery RED -> ${level} confirmed by 3 fresh observations below 1.400 m.`,
+    }) };
+    await app.poll();
+    const card = app.element('sensor-cards').children[0].innerHTML;
+    assert.match(card, /Recovery confirmed/);
+    assert.doesNotMatch(card, /0\/2|Normal \(no active alert\)/);
+    assert.equal(app.read("document.getElementById('sensor-cards').children[0].className"), `card ${level}`);
+  });
+}
+
+test('legacy readings with no decision kind do not invent recovery evidence', async () => {
+  const app = await boot();
+  app.state.status = { SENSOR_01: reading('RED', 'fresh', { alert_kind: null, recovery_count: null }) };
+  await app.poll();
+  const card = app.element('sensor-cards').children[0].innerHTML;
+  assert.match(card, /Recovery status unavailable/);
+  assert.doesNotMatch(card, /0\/2|0\.05 m|Recovery confirmed/);
+});
+
+test('historical source and evidence freshness remain separate from current stale conditions', async () => {
+  const events = [{ event_id: 42, node_id: 'SENSOR_01', previous_level: 'GREEN', new_level: 'RED',
+    event_type: 'escalation', reason: 'Historical depth crossing', source: 'simulated',
+    observed_at: '2026-01-01T00:01:00Z', data_status_at_event: 'fresh' }];
+  const app = await boot([], undefined, events);
+  app.state.status = { SENSOR_01: reading('RED', 'stale') };
+  await app.poll();
+  const panel = app.element('alert-history');
+  const event = panel.children[0];
+  assert.match(event.innerHTML, /Source: simulated \(prototype\)/);
+  assert.match(event.innerHTML, /Evidence when recorded: fresh/);
+  assert.equal(event.dataset.eventId, '42');
+  assert.match(html, /id="alert-history-note"[^>]*>[^<]*not current conditions/);
+  assert.match(app.element('sensor-cards').children[0].innerHTML, /STALE/);
+  await app.poll();
+  assert.equal(panel.children.length, 1);
+  const refreshed = await boot([], undefined, events);
+  assert.equal(refreshed.element('alert-history').children[0].dataset.eventId, '42');
+});
+
+test('history error and recovery preserve fresh sensor cards and restore one copy per event', async () => {
+  const events = [{ event_id: 8, node_id: 'SENSOR_02', previous_level: 'YELLOW', new_level: 'GREEN',
+    event_type: 'recovery', reason: 'Confirmed recovery', source: 'manual', data_status_at_event: 'fresh' }];
+  const app = await boot([], undefined, events);
+  app.state.status = Object.fromEntries(ids.map(id => [id, reading()]));
+  app.state.failAlerts = true;
+  await app.poll();
+  assert.equal(app.element('system-badge').textContent, 'ALL SENSORS NORMAL');
+  assert.match(app.element('sensor-cards').children[0].innerHTML, /Action:/);
+  assert.match(app.element('alert-history').children[0].textContent, /Alert history unavailable/);
+  app.state.failAlerts = false;
+  await app.poll();
+  await app.poll();
+  assert.equal(app.element('alert-history').children.length, 1);
+  assert.match(app.element('alert-history').children[0].innerHTML, /Source: manual/);
+});
+
+test('history fields are escaped and absent provenance stays unknown', async () => {
+  const app = await boot([], undefined, [{ event_id: 9, node_id: '<img onerror=bad()>',
+    previous_level: 'GREEN', new_level: 'RED', reason: '<script>bad()</script>',
+    source: '<svg onload=bad()>', data_status_at_event: '<b>fresh</b>', event_type: 'escalation' }]);
+  let card = app.element('alert-history').children[0].innerHTML;
+  assert.doesNotMatch(card, /<img|<script|<svg|<b>/);
+  assert.match(card, /Source: &lt;svg onload=bad\(\)&gt;/);
+  assert.match(card, /Evidence when recorded: &lt;b&gt;fresh&lt;\/b&gt;/);
+  app.state.alerts = [{ event_id: 10, node_id: 'SENSOR_01', previous_level: 'GREEN', new_level: 'YELLOW' }];
+  await app.poll();
+  card = app.element('alert-history').children[0].innerHTML;
+  assert.match(card, /Source: unknown/);
+  assert.match(card, /Evidence when recorded: unknown/);
 });
