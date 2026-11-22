@@ -1,8 +1,14 @@
-# Prototype API contract — Phase 3
+# Prototype API contract — Phase 4
 
 Run `python 02_backend/run.py`. Interactive schemas are available at `/docs`.
 All URLs below are relative to the backend origin. This prototype has no
 authentication; source labels are client declarations, not verified identities.
+
+Phase 4 adds a CLI runner using the existing APIs, with no new remote control or
+reset routes. An owned demo backend adds an optional `simulation_run_id` UUID to
+its healthy `/health` response, configured by `STREAM_SIMULATION_RUN_ID`. The
+runner uses it to verify process ownership before posting. Normal backend health
+responses remain unchanged. See [simulation setup](SIMULATIONS.md).
 
 ## Telemetry ingestion
 

@@ -12,7 +12,7 @@ alerts, and a reproducible software demonstration. Physical hardware is not
 required for this review. Frontend implementation stays with the frontend team.
 
 Finish a reliable backend prototype before adding optional features. Retain
-the current repository layout. Checkpoints 0, 1, 2 and 3 are complete locally; later
+the current repository layout. Checkpoints 0, 1, 2, 3 and 4 are complete locally; later
 checkpoints remain the proposed implementation sequence.
 
 ## Checkpoints and completion evidence
@@ -160,7 +160,7 @@ integration branch preserves that head for anyone who already fetched it.
 | 1 | Completed locally | Package imports, central runtime settings, working-directory-independent launcher and paths, lifespan DB initialization, readiness checks, generated-data ignores, sample DB untracked, and setup instructions. All 20 tests passed on Python 3.13.6, including four real server launches (root/backend/unrelated directory/clean source copy), persistence, API compatibility and storage failure cases. |
 | 2 | Completed locally | Validated finite telemetry, UTC observation/receipt timestamps, source labels, calculated signed rates, concurrent idempotent retries, explicit 409 conflicts, non-destructive legacy migration, bounded chronological history and validated spatial APIs. All 62 backend tests passed before frontend integration. See `02_backend/API.md`. |
 | 3 | Completed locally | One persisted alert engine, signed trend evidence, recovery deadband/persistence, explicit quality/freshness metadata and bounded/cursor-based event history. Telemetry, state and events share one transaction; migration/restart do not replay events. See Phase 3 verification below. |
-| 4 | Not started | — |
+| 4 | Completed locally | Six finite scenarios, isolated managed demo servers/databases, explicit simulated clocks and real freshness waits, duplicate-safe HTTP retries, owned-process checks, cancellation, persisted plans/reports and exact expected-state/event/history verification. See Phase 4 verification below. |
 | 5 | Not started | — |
 | 6 | In progress | Original frontend PRs #1 and #2 and supporting fixes PR #4 are merged into main. Backend/real-server API and dashboard behavior checks pass. Visual/LAN checks and scenario rehearsal remain pending. |
 
@@ -211,3 +211,25 @@ integration branch preserves that head for anyone who already fetched it.
 - Result: **111 Python tests and 5 dashboard behavior tests passed**. This includes
   47 Phase 3 cases and all earlier backend/real-server frontend integration tests.
 - Notification delivery remains Phase 5. The frontend is unchanged by this checkpoint.
+
+### Checkpoint 4 — 22 November 2026
+
+- Started from merged Phase 3 main `049ad97` on `backend/vernit`.
+- Added `simulate.py` and `simulation/` with normal, sustained-rise,
+  progressing-surge, recovery, isolated-spike and sensor-dropout profiles.
+- Managed runs use fresh UUID directories/databases and a process-identity health
+  handshake. They ignore inherited backend overrides and never reset existing data.
+  External playback is explicit and requires an empty prototype backend.
+- Playback speed affects wall time, not observation intervals or computed rates.
+  Dropout uses real elapsed time and heartbeats for the remaining nodes.
+- Replaced the old endless sine-wave and import-time posting scripts with
+  guarded compatibility entry points for the finite progressing-surge profile.
+- Reports verify levels, decision kinds, freshness, ordered events and persisted
+  observation values. Failed/cancelled runs retain partial evidence and stop owned
+  processes. No external notifications or frontend implementation changes were made.
+- Setup, demo commands, policy assumptions and cancellation semantics are in
+  `02_backend/SIMULATIONS.md`. The next backend checkpoint remains notification delivery.
+- Final verification: **144 Python tests and 5 dashboard behavior tests passed**,
+  including 33 simulation cases. Commands:
+  `python -B -m pytest 02_backend/tests 03_dashboard/tests -q -p no:cacheprovider`
+  and `node --test 03_dashboard/tests/dashboard.test.cjs`.
