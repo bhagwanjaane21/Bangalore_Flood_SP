@@ -115,3 +115,7 @@ Live sending requires explicit `--live` and environment credentials. The origina
 `04_notifications/telegram_bot.py` now delegates to this same worker and defaults
 to dry-run. The Phase 5 change includes notification code and backend/docs only;
 frontend and spatial source files are unchanged.
+
+The [software demo and handover guide](../05_docs_and_reviews/demo_handover.md)
+contains the two-terminal presentation sequence, six-scenario rehearsal results,
+notification restart evidence and explicitly outstanding device/live checks.

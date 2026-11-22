@@ -1,0 +1,158 @@
+{
+  "status": "completed",
+  "mode": "simulated scenarios with notification dry-run",
+  "started_at": "2026-11-22T16:16:19.068888+00:00",
+  "profiles": [
+    {
+      "scenario": "normal",
+      "verified": true,
+      "history_counts": {
+        "SENSOR_01": 4,
+        "SENSOR_02": 4,
+        "SENSOR_03": 4
+      },
+      "alert_events": 0,
+      "dry_run_previews": 0,
+      "new_previews_after_restart": 0,
+      "final_levels": {
+        "SENSOR_01": "GREEN",
+        "SENSOR_02": "GREEN",
+        "SENSOR_03": "GREEN"
+      },
+      "final_freshness": {
+        "SENSOR_01": "fresh",
+        "SENSOR_02": "fresh",
+        "SENSOR_03": "fresh"
+      }
+    },
+    {
+      "scenario": "sustained-rise",
+      "verified": true,
+      "history_counts": {
+        "SENSOR_01": 6,
+        "SENSOR_02": 6,
+        "SENSOR_03": 6
+      },
+      "alert_events": 2,
+      "dry_run_previews": 2,
+      "new_previews_after_restart": 0,
+      "final_levels": {
+        "SENSOR_01": "ORANGE",
+        "SENSOR_02": "GREEN",
+        "SENSOR_03": "GREEN"
+      },
+      "final_freshness": {
+        "SENSOR_01": "fresh",
+        "SENSOR_02": "fresh",
+        "SENSOR_03": "fresh"
+      }
+    },
+    {
+      "scenario": "progressing-surge",
+      "verified": true,
+      "history_counts": {
+        "SENSOR_01": 6,
+        "SENSOR_02": 6,
+        "SENSOR_03": 6
+      },
+      "alert_events": 9,
+      "dry_run_previews": 9,
+      "new_previews_after_restart": 0,
+      "final_levels": {
+        "SENSOR_01": "RED",
+        "SENSOR_02": "RED",
+        "SENSOR_03": "RED"
+      },
+      "final_freshness": {
+        "SENSOR_01": "fresh",
+        "SENSOR_02": "fresh",
+        "SENSOR_03": "fresh"
+      }
+    },
+    {
+      "scenario": "recovery",
+      "verified": true,
+      "history_counts": {
+        "SENSOR_01": 4,
+        "SENSOR_02": 4,
+        "SENSOR_03": 4
+      },
+      "alert_events": 2,
+      "dry_run_previews": 2,
+      "new_previews_after_restart": 0,
+      "final_levels": {
+        "SENSOR_01": "GREEN",
+        "SENSOR_02": "GREEN",
+        "SENSOR_03": "GREEN"
+      },
+      "final_freshness": {
+        "SENSOR_01": "fresh",
+        "SENSOR_02": "fresh",
+        "SENSOR_03": "fresh"
+      }
+    },
+    {
+      "scenario": "isolated-spike",
+      "verified": true,
+      "history_counts": {
+        "SENSOR_01": 5,
+        "SENSOR_02": 5,
+        "SENSOR_03": 5
+      },
+      "alert_events": 0,
+      "dry_run_previews": 0,
+      "new_previews_after_restart": 0,
+      "final_levels": {
+        "SENSOR_01": "GREEN",
+        "SENSOR_02": "GREEN",
+        "SENSOR_03": "GREEN"
+      },
+      "final_freshness": {
+        "SENSOR_01": "fresh",
+        "SENSOR_02": "fresh",
+        "SENSOR_03": "fresh"
+      }
+    },
+    {
+      "scenario": "sensor-dropout",
+      "verified": true,
+      "history_counts": {
+        "SENSOR_01": 7,
+        "SENSOR_02": 2,
+        "SENSOR_03": 7
+      },
+      "alert_events": 0,
+      "dry_run_previews": 0,
+      "new_previews_after_restart": 0,
+      "final_levels": {
+        "SENSOR_01": "GREEN",
+        "SENSOR_02": "GREEN",
+        "SENSOR_03": "GREEN"
+      },
+      "final_freshness": {
+        "SENSOR_01": "fresh",
+        "SENSOR_02": "stale",
+        "SENSOR_03": "fresh"
+      }
+    }
+  ],
+  "real_notifications_sent": false,
+  "finished_at": "2026-11-22T16:16:53.117512+00:00",
+  "frontend_checkpoint": "827278c",
+  "backend_baseline": "c759115",
+  "python_tests_passed": 210,
+  "dashboard_tests_passed": 24,
+  "browser_widths": [
+    360,
+    390,
+    768,
+    800,
+    801,
+    1366
+  ],
+  "unverified": [
+    "physical phone/LAN",
+    "independent teammate clean-clone setup",
+    "optional live Telegram delivery"
+  ]
+}
