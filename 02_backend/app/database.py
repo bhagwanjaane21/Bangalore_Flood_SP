@@ -3,6 +3,7 @@
 import sqlite3
 import math
 import json
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,15 @@ class TelemetryDatabase:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect(create=True) as connection:
             connection.execute("BEGIN IMMEDIATE")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS backend_metadata (
+                    key TEXT PRIMARY KEY, value TEXT NOT NULL
+                )
+            """)
+            connection.execute(
+                "INSERT OR IGNORE INTO backend_metadata VALUES ('event_stream_id', ?)",
+                (str(uuid.uuid4()),),
+            )
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS telemetry (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,6 +127,7 @@ class TelemetryDatabase:
 
     def check_ready(self):
         with self.connect() as connection:
+            self._event_stream_id(connection)
             connection.execute("""
                 SELECT id, node_id, water_depth_m, rate_of_rise_cm_min,
                        battery_voltage, timestamp, observed_at, received_at, source,
@@ -128,6 +139,20 @@ class TelemetryDatabase:
             """)
             connection.execute("SELECT node_id, level, recovery_count, reading_id FROM alert_state LIMIT 0")
             connection.execute("SELECT id, reading_id, new_level, rule_version FROM alert_events LIMIT 0")
+
+    @staticmethod
+    def _event_stream_id(connection):
+        row = connection.execute(
+            "SELECT value FROM backend_metadata WHERE key = 'event_stream_id'"
+        ).fetchone()
+        try:
+            return str(uuid.UUID(row["value"]))
+        except (TypeError, ValueError):
+            raise sqlite3.DatabaseError("Invalid event stream identity") from None
+
+    def event_stream_id(self):
+        with self.connect() as connection:
+            return self._event_stream_id(connection)
 
     def store_telemetry(self, reading: TelemetryReading, received_at: datetime) -> tuple[dict, bool]:
         observed_at = utc_timestamp(reading.observed_at or received_at)
@@ -211,12 +236,13 @@ class TelemetryDatabase:
     def get_latest_telemetry(self) -> list[dict]:
         with self.connect() as connection:
             rows = connection.execute("""
-                SELECT * FROM (
+                SELECT *, (SELECT MAX(e.id) FROM alert_events e WHERE e.node_id = latest.node_id)
+                    AS alert_event_id FROM (
                     SELECT *, ROW_NUMBER() OVER (
                         PARTITION BY node_id
                         ORDER BY observed_at IS NOT NULL DESC, observed_at DESC, id DESC
                     ) AS position FROM telemetry
-                ) WHERE position = 1 ORDER BY node_id
+                ) AS latest WHERE position = 1 ORDER BY node_id
             """).fetchall()
         return [dict(row) for row in rows]
 
