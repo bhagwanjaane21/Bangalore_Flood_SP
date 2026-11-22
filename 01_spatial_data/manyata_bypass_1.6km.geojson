@@ -4,20 +4,22 @@
     {
       "type": "Feature",
       "properties": {
-        "name": "Manyata-Karle 1.6 km Concrete Bypass Canal",
-        "length_km": 1.6,
-        "corridor": "Primary Drain 127"
+        "name": "Manyata-Karle bypass canal (illustrative trace)",
+        "corridor": "Primary Drain 127",
+        "reported_length_km": 1.6,
+        "verification_status": "unverified",
+        "source_note": "Teammate PR #1 trace; pending reconciliation with the QGIS export"
       },
       "geometry": {
         "type": "LineString",
         "coordinates": [
           [77.618309, 13.048505],
-          [77.618120, 13.047200],
-          [77.617650, 13.045900],
-          [77.616400, 13.045450],
-          [77.614800, 13.045200],
-          [77.613100, 13.044950],
-          [77.611400, 13.044700]
+          [77.61812, 13.0472],
+          [77.61765, 13.0459],
+          [77.6164, 13.04545],
+          [77.6148, 13.0452],
+          [77.6131, 13.04495],
+          [77.6114, 13.0447]
         ]
       }
     }
