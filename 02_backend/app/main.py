@@ -15,6 +15,7 @@ from .config import PROJECT_DIR, Settings, load_settings
 from .database import TelemetryDatabase
 from .spatial import load_spatial
 from .telemetry import TelemetryConflict, TelemetryReading, public_reading
+from .ml_predictor import nowcast_engine 
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if node_id is not None and node_id not in SENSOR_RULES:
             raise HTTPException(status_code=404, detail=f"Unknown node_id: {node_id}")
         return database.get_alerts(limit, node_id, after_id)
+
+    @application.get("/api/predict")
+    def get_ml_flood_prediction(rainfall_mm_hr: float = Query(default=65.0, ge=0.0, le=250.0)):
+        """Runs <2s Random Forest flash-flood nowcasting across all 3 checkpoints."""
+        readings = database.get_latest_telemetry()
+        predictions = {}
+        slopes = {"SENSOR_01": 1.1, "SENSOR_02": 0.7, "SENSOR_03": 0.4}
+
+        for r in readings:
+            nid = r["node_id"]
+            pred = nowcast_engine.predict_risk(
+                depth_m=r["water_depth_m"],
+                rise_cm_min=r.get("rate_of_rise_cm_min", 0.0),
+                rain_mm_hr=rainfall_mm_hr,
+                slope_pct=slopes.get(nid, 0.6),
+            )
+            predictions[nid] = {
+                "water_depth_m": r["water_depth_m"],
+                "rate_of_rise_cm_min": r.get("rate_of_rise_cm_min", 0.0),
+                **pred,
+            }
+        return {"assumed_rainfall_mm_hr": rainfall_mm_hr, "predictions": predictions}
 
     return application
 
