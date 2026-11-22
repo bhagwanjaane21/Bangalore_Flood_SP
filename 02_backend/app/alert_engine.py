@@ -1,170 +1,193 @@
+"""Shared prototype alert rules. Pure decisions only; no network or actuator I/O."""
+
 import json
-import os
-import time
+import math
+from dataclasses import dataclass
 from datetime import datetime
+from statistics import median_high, median_low
 
-# --- CONFIGURATION & THRESHOLDS ---
-GEOJSON_FILE = "sensors.geojson"
+LEVEL_RANK = {"GREEN": 0, "YELLOW": 1, "ORANGE": 2, "RED": 3}
+RULE_VERSION = "prototype-v1"
 
-# Alert thresholds based on channel depth & rate of rise
-THRESHOLDS = {
-    "SENSOR_01": {
-        "name": "Rachenahalli Lake Sluice Outlet",
-        "lead_time": "35–45 mins",
-        "yellow_depth": 0.50,  # meters above normal weir crest
-        "orange_depth": 1.00,
-        "red_depth": 1.50,
-    },
-    "SENSOR_02": {
-        "name": "Dasarahalli Mid-Reach Culvert",
-        "lead_time": "15–20 mins",
-        "yellow_depth": 0.60,
-        "orange_depth": 1.10,
-        "red_depth": 1.60,
-    },
-    "SENSOR_03": {
-        "name": "Manyata Tech Park Boundary / Gate 4",
-        "lead_time": "0–5 mins (IMMEDIATE)",
-        "yellow_depth": 0.80,
-        "orange_depth": 1.20,
-        "red_depth": 1.50,  # Near overtopping bank-full stage
-    },
+
+@dataclass(frozen=True)
+class SensorRule:
+    name: str
+    lead_time: str
+    yellow: float
+    orange: float
+    red: float
+
+
+SENSOR_RULES = {
+    "SENSOR_01": SensorRule("Rachenahalli Lake Sluice Outlet", "35–45 mins", 0.50, 1.00, 1.50),
+    "SENSOR_02": SensorRule("Dasarahalli Mid-Reach Culvert", "15–20 mins", 0.60, 1.10, 1.60),
+    "SENSOR_03": SensorRule("Manyata Tech Park Boundary / Gate 4", "0–5 mins (IMMEDIATE)", 0.80, 1.20, 1.50),
 }
 
-# Optional Telegram bot integration (leave empty strings to log to console only)
-TELEGRAM_BOT_TOKEN = ""  # e.g., "123456789:ABCdefGhIJKlmNoPQRstuVWXyz"
-TELEGRAM_CHAT_ID = ""    # e.g., "@manyata_flood_alerts" or private chat ID
+
+@dataclass(frozen=True)
+class AlertPolicy:
+    max_gap_seconds: float = 90
+    recovery_samples: int = 2
+    recovery_margin_m: float = 0.05
+    trend_min_span_seconds: float = 10
+    trend_yellow_cm_min: float = 2
+    trend_orange_cm_min: float = 5
+    window_samples: int = 5
 
 
-def send_telegram_alert(message: str):
-    """Dispatches real-time broadcast via Telegram Bot API."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return
-    import requests
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown",
+@dataclass(frozen=True)
+class Decision:
+    level: str
+    reason: str
+    kind: str
+    recovery_count: int = 0
+    trend_rate_cm_min: float | None = None
+    trend_samples: int = 0
+    quality_flags: tuple[str, ...] = ()
+
+
+def parse_time(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def data_freshness(reading: dict, now: datetime, stale_after_seconds: float) -> dict:
+    if not reading.get("received_at"):
+        return {"data_status": "unknown", "data_age_seconds": None,
+                "data_warning": "Timestamp provenance is unknown; current conditions cannot be established."}
+    age = max(0.0, (now - parse_time(reading["received_at"])).total_seconds())
+    if reading.get("source") != "simulated" and reading.get("observed_at"):
+        age = max(age, (now - parse_time(reading["observed_at"])).total_seconds())
+    stale = age > stale_after_seconds
+    return {"data_status": "stale" if stale else "fresh", "data_age_seconds": round(age, 1),
+            "data_warning": "Reading is stale; current conditions cannot be established." if stale else None}
+
+
+def depth_level(rule: SensorRule, depth: float) -> str:
+    for level, threshold in (("RED", rule.red), ("ORANGE", rule.orange), ("YELLOW", rule.yellow)):
+        if depth >= threshold:
+            return level
+    return "GREEN"
+
+
+def recent_trend(history: list[dict], policy: AlertPolicy) -> tuple[float | None, list[float], int, tuple[str, ...]]:
+    """Use a contiguous same-source tail; client-reported rates never qualify."""
+    flags = []
+    if not history or not history[-1].get("observed_at"):
+        return None, [], 0, ("timestamp_unknown",)
+    tail = [history[-1]]
+    for previous in reversed(history[:-1]):
+        current = tail[0]
+        if not previous.get("observed_at") or not previous.get("received_at"):
+            flags.append("timestamp_unknown")
+            break
+        if previous.get("source") != current.get("source"):
+            flags.append("source_changed")
+            break
+        observed_gap = (parse_time(current["observed_at"]) - parse_time(previous["observed_at"])).total_seconds()
+        receipt_gap = (parse_time(current["received_at"]) - parse_time(previous["received_at"])).total_seconds()
+        if not 0 < observed_gap <= policy.max_gap_seconds or not 0 <= receipt_gap <= policy.max_gap_seconds:
+            flags.append("sampling_gap")
+            break
+        tail.insert(0, previous)
+        if len(tail) >= policy.window_samples:
+            break
+    rates = []
+    for previous, current in zip(tail, tail[1:]):
+        elapsed = (parse_time(current["observed_at"]) - parse_time(previous["observed_at"])).total_seconds()
+        rate = (current["water_depth_m"] - previous["water_depth_m"]) / elapsed * 6000
+        if not math.isfinite(rate):
+            return None, [], len(tail), tuple(flags + ["trend_unavailable"])
+        rates.append(round(rate, 6))
+    if rates and abs(rates[-1]) >= 30:
+        flags.append("abrupt_change")
+    if len(tail) < 3:
+        return None, [], len(tail), tuple(flags + ["insufficient_trend_samples"])
+    span = (parse_time(tail[-1]["observed_at"]) - parse_time(tail[0]["observed_at"])).total_seconds()
+    if span < policy.trend_min_span_seconds:
+        return None, [], len(tail), tuple(flags + ["trend_span_too_short"])
+    # Taking the midpoint this way avoids overflowing when two valid finite
+    # rates are both close to the floating-point maximum.
+    trend = median_low(rates) / 2 + median_high(rates) / 2
+    return round(trend, 6), rates, len(tail), tuple(flags)
+
+
+def evaluate_reading(reading: dict, history: list[dict], previous_state: dict | None,
+                     now: datetime, policy: AlertPolicy) -> Decision:
+    rule = SENSOR_RULES[reading["node_id"]]
+    old_level = previous_state["level"] if previous_state else "GREEN"
+    candidate = depth_level(rule, reading["water_depth_m"])
+    kind = "depth" if candidate != "GREEN" else "normal"
+    reason = (f"Depth {reading['water_depth_m']:.3f} m gives {candidate} under prototype depth thresholds.")
+    freshness = data_freshness(reading, now, policy.max_gap_seconds)
+    fresh = freshness["data_status"] == "fresh"
+    trend, rates, sample_count, quality_flags = recent_trend(history, policy)
+    flags = list(quality_flags)
+    if reading.get("rate_source") == "reported":
+        flags.append("reported_rate_unverified")
+    if not fresh:
+        flags.append("data_" + freshness["data_status"])
+    if fresh and trend is not None and len(rates) >= 2:
+        for level, threshold in (("ORANGE", policy.trend_orange_cm_min),
+                                 ("YELLOW", policy.trend_yellow_cm_min)):
+            if trend >= threshold and min(rates[-2:]) >= threshold:
+                if LEVEL_RANK[level] > LEVEL_RANK[candidate]:
+                    candidate = level
+                    kind = "trend"
+                    reason = (f"Sustained rise: median {trend:.3f} cm/min and both latest intervals "
+                              f">= {threshold:g} cm/min across {sample_count} observations.")
+                break
+    count = 0
+    if LEVEL_RANK[candidate] < LEVEL_RANK[old_level]:
+        release_depth = round(getattr(rule, old_level.lower()) - policy.recovery_margin_m, 6)
+        if not fresh:
+            candidate = old_level
+            kind = "held"
+            reason = f"Holding {old_level}: stale or unknown data cannot confirm recovery."
+        elif reading["water_depth_m"] > release_depth:
+            candidate = old_level
+            kind = "held"
+            reason = f"Holding {old_level}: recovery requires depth <= {release_depth:.3f} m."
+        else:
+            # A sampling/source break discards previous recovery evidence.
+            prior_count = previous_state["recovery_count"] if previous_state and sample_count >= 2 else 0
+            count = prior_count + 1
+            if count < policy.recovery_samples:
+                candidate = old_level
+                kind = "held"
+                reason = (f"Holding {old_level}: recovery observation {count}/{policy.recovery_samples} "
+                          f"below {release_depth:.3f} m.")
+            else:
+                kind = "recovery"
+                reason = (f"Recovery {old_level} -> {candidate} confirmed by {count} fresh observations "
+                          f"below {release_depth:.3f} m. " + reason)
+                count = 0
+    if not fresh and kind != "held":
+        reason += " Historical/unknown observation; this does not establish current conditions."
+    return Decision(candidate, reason, kind, count, trend, sample_count, tuple(dict.fromkeys(flags)))
+
+
+def alert_snapshot(reading: dict) -> dict:
+    rule = SENSOR_RULES.get(reading["node_id"])
+    level = reading.get("alert_level")
+    actions = {
+        "GREEN": "Continue monitoring.",
+        "YELLOW": "Notify the designated operator and monitor the trend.",
+        "ORANGE": "Prepare the agreed local response and check current conditions.",
+        "RED": "Escalate immediately to the designated operator using the agreed local response plan.",
     }
-    try:
-        requests.post(url, json=payload, timeout=5)
-    except Exception as e:
-        print(f"[ERROR] Failed to send Telegram alert: {e}")
-
-
-def load_sensor_metadata(geojson_path: str) -> dict:
-    """Extracts sensor IDs and geographic coordinates from QGIS GeoJSON."""
-    if not os.path.exists(geojson_path):
-        raise FileNotFoundError(f"Cannot find {geojson_path}. Ensure it is exported from QGIS.")
-
-    with open(geojson_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    sensors = {}
-    for feature in data.get("features", []):
-        props = feature.get("properties", {})
-        sensor_id = (
-            props.get("Sensor_ID")
-            or props.get("id")
-            or props.get("Name")
-        )
-        coords = feature.get("geometry", {}).get("coordinates", [])
-        if sensor_id:
-            sensors[sensor_id] = {
-                "lon": coords[0] if len(coords) > 0 else None,
-                "lat": coords[1] if len(coords) > 1 else None,
-            }
-    return sensors
-
-
-def evaluate_sensor_status(sensor_id: str, current_depth: float, rain_rate: float) -> dict:
-    """Evaluates sensor readings against hydrological danger thresholds."""
-    cfg = THRESHOLDS.get(sensor_id, {})
-    name = cfg.get("name", sensor_id)
-    lead_time = cfg.get("lead_time", "Unknown")
-
-    if current_depth >= cfg.get("red_depth", 1.50):
-        level = "RED"
-        action = (
-            "🚨 CRITICAL ACTION: Deploy pneumatic flood barriers at Gate 4. "
-            "Start basement dewatering pumps immediately. Divert internal traffic away from Thanisandra road."
-        )
-    elif current_depth >= cfg.get("orange_depth", 1.00) or rain_rate >= 50.0:
-        level = "ORANGE"
-        action = (
-            "⚠️ WARNING: High water surge confirmed moving down corridor. "
-            "Clear low-lying access lanes. Advise commuters to use Bellary Road / Hebbal flyover exits."
-        )
-    elif current_depth >= cfg.get("yellow_depth", 0.50) or rain_rate >= 30.0:
-        level = "YELLOW"
-        action = (
-            "📢 ADVISORY: Upstream lake surcharge detected. "
-            "Security & facility teams on standby. Monitor 1.6 km bypass intake for debris blockages."
-        )
-    else:
-        level = "GREEN"
-        action = "Normal operating conditions. Drain freeboard clear."
-
     return {
-        "sensor_id": sensor_id,
-        "name": name,
-        "level": level,
-        "current_depth": current_depth,
-        "lead_time": lead_time,
-        "action": action,
+        "name": rule.name if rule else reading["node_id"],
+        "lead_time": rule.lead_time if rule else "Unknown",
+        "lead_time_source": "unvalidated_assumption",
+        "alert_level": level,
+        "alert_reason": reading.get("alert_reason"),
+        "alert_kind": reading.get("alert_kind"),
+        "alert_action": actions.get(level),
+        "alert_rule_version": reading.get("alert_rule_version"),
+        "recovery_count": reading.get("alert_recovery_count") or 0,
+        "trend_rate_cm_min": reading.get("alert_trend_rate_cm_min"),
+        "trend_sample_count": reading.get("alert_trend_samples") or 0,
+        "quality_flags": json.loads(reading.get("alert_quality_flags") or "[]"),
     }
-
-
-def trigger_alert_pipeline(status: dict):
-    """Logs the warning and broadcasts to community channels."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    banner = "=" * 65
-    print(f"\n{banner}")
-    print(f"[{status['level']} ALERT] {status['name']} ({status['sensor_id']})")
-    print(f"Timestamp: {timestamp} | Recorded Depth: {status['current_depth']:.2f} m")
-    print(f"Estimated Lead Time to Manyata Flooding: {status['lead_time']}")
-    print(f"Action Protocol:\n{status['action']}")
-    print(f"{banner}\n")
-
-    if status["level"] in ["YELLOW", "ORANGE", "RED"]:
-        msg = (
-            f"*{status['level']} ALERT - Manyata Flood Warning System*\n\n"
-            f"📍 *Location:* {status['name']}\n"
-            f"📏 *Water Depth:* {status['current_depth']:.2f} m\n"
-            f"⏳ *Time to Impact:* {status['lead_time']}\n\n"
-            f"📋 *Recommended Action:*\n{status['action']}\n\n"
-            f"🕒 _Timestamp: {timestamp}_"
-        )
-        send_telegram_alert(msg)
-
-
-# --- SIMULATION & RUNTIME TEST ---
-if __name__ == "__main__":
-    print("Loading sensor locations from QGIS GeoJSON...")
-    try:
-        nodes = load_sensor_metadata(GEOJSON_FILE)
-        print(f"Successfully loaded {len(nodes)} sensor checkpoints from GeoJSON:")
-        for s_id, geo in nodes.items():
-            print(f"  • {s_id}: Latitude {geo['lat']}, Longitude {geo['lon']}")
-    except Exception as err:
-        print(f"Warning: {err}")
-
-    print("\n--- INITIATING FLOOD SURGE SIMULATION ---")
-    print("Simulating high-intensity cloudburst scenario (90 mm/hr monsoon storm)...\n")
-
-    # Step 1: Upstream Rachenahalli Sluice triggers first
-    time.sleep(1)
-    status_01 = evaluate_sensor_status("SENSOR_01", current_depth=0.85, rain_rate=65.0)
-    trigger_alert_pipeline(status_01)
-
-    # Step 2: Surge travels mid-reach toward Dasarahalli 20 mins later
-    time.sleep(2)
-    status_02 = evaluate_sensor_status("SENSOR_02", current_depth=1.30, rain_rate=75.0)
-    trigger_alert_pipeline(status_02)
-
-    # Step 3: Surge hits Manyata Perimeter / Gate 4 intake
-    time.sleep(2)
-    status_03 = evaluate_sensor_status("SENSOR_03", current_depth=1.65, rain_rate=90.0)
-    trigger_alert_pipeline(status_03)

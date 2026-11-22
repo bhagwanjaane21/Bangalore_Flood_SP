@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from .alert_engine import alert_snapshot
+
 
 def utc_timestamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
@@ -41,6 +43,7 @@ class TelemetryConflict(ValueError):
 
 def public_reading(row: dict) -> dict:
     return {
+        **alert_snapshot(row),
         "reading_id": row["id"],
         "node_id": row["node_id"],
         "water_depth_m": row["water_depth_m"],

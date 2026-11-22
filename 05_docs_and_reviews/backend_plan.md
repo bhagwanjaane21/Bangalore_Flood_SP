@@ -12,7 +12,7 @@ alerts, and a reproducible software demonstration. Physical hardware is not
 required for this review. Frontend implementation stays with the frontend team.
 
 Finish a reliable backend prototype before adding optional features. Retain
-the current repository layout. Checkpoints 0, 1 and 2 are complete locally; later
+the current repository layout. Checkpoints 0, 1, 2 and 3 are complete locally; later
 checkpoints remain the proposed implementation sequence.
 
 ## Checkpoints and completion evidence
@@ -126,6 +126,8 @@ times and physical actuation are outside the software prototype's completion cla
   teammate's original PRs into `main`; agree on frontend improvements separately.
   This branch may still contain all repository folders because a branch is a full
   project snapshot. Ownership is defined by its changes relative to `main`.
+  Update from merged `main` normally; its inherited frontend work is not a new
+  backend implementation change.
 - Use the checkpoint commits above. Update this ledger with the commit and test
   result; each later implementation commit should include its ledger update.
 - When publishing is requested, use `git push -u origin backend/vernit` and open a
@@ -157,10 +159,10 @@ integration branch preserves that head for anyone who already fetched it.
 | 0 | Completed locally | Current repository and both PR heads reviewed; API smoke probes, mocked dispatcher probe, JS syntax checks and PR merge-tree check performed. See `frontend_pr_review.md`. |
 | 1 | Completed locally | Package imports, central runtime settings, working-directory-independent launcher and paths, lifespan DB initialization, readiness checks, generated-data ignores, sample DB untracked, and setup instructions. All 20 tests passed on Python 3.13.6, including four real server launches (root/backend/unrelated directory/clean source copy), persistence, API compatibility and storage failure cases. |
 | 2 | Completed locally | Validated finite telemetry, UTC observation/receipt timestamps, source labels, calculated signed rates, concurrent idempotent retries, explicit 409 conflicts, non-destructive legacy migration, bounded chronological history and validated spatial APIs. All 62 backend tests passed before frontend integration. See `02_backend/API.md`. |
-| 3 | Not started | — |
+| 3 | Completed locally | One persisted alert engine, signed trend evidence, recovery deadband/persistence, explicit quality/freshness metadata and bounded/cursor-based event history. Telemetry, state and events share one transaction; migration/restart do not replay events. See Phase 3 verification below. |
 | 4 | Not started | — |
 | 5 | Not started | — |
-| 6 | In progress | Original teammate frontend PRs #1 and #2 merged separately into main; supporting frontend integration fixes and real-server API tests prepared on `fix/frontend-integration`. Backend branch remains separate. Visual/LAN checks and scenario rehearsal remain pending. |
+| 6 | In progress | Original frontend PRs #1 and #2 and supporting fixes PR #4 are merged into main. Backend/real-server API and dashboard behavior checks pass. Visual/LAN checks and scenario rehearsal remain pending. |
 
 ### Checkpoint 1 verification — 22 November 2026
 
@@ -188,3 +190,24 @@ integration branch preserves that head for anyone who already fetched it.
   integrated. Tests verify the API with temporary mapped geometry.
 - The API contract is documented in `02_backend/API.md`. Adaptive alerts,
   hysteresis, persisted alert events and dispatcher repair remain later work.
+
+### Branch cleanup and checkpoint 3 — 22 November 2026
+
+- Updated local `main` and `backend/vernit` to merged main `4b9b57e` before
+  implementation. Frontend features were received through main, not reimplemented
+  on the backend branch.
+- Deleted completed `fix/frontend-integration` and obsolete `integration/prototype`
+  branches locally and on GitHub. Removed the merged local PR #2 resolution branch.
+  The earlier backup references in this document are historical; the completed
+  prototype and original teammate commits are now preserved in main.
+- Phase 3 changes are limited to backend code/tests/configuration and this progress
+  log. Shared rules retain the API's original depth thresholds and explicitly
+  document SENSOR_02 ORANGE as 1.10 m. Windowed rise rules are prototype choices.
+- Checks cover boundary levels, sustained versus isolated rises, source/time gaps,
+  stale evidence, recovery noise, concurrent retries, cursor ordering, transaction
+  rollback, restart persistence and migration without retrospective alerts.
+- Final verification: `python -B -m pytest 02_backend/tests 03_dashboard/tests -q
+  -p no:cacheprovider` and `node --test 03_dashboard/tests/dashboard.test.cjs`.
+- Result: **111 Python tests and 5 dashboard behavior tests passed**. This includes
+  47 Phase 3 cases and all earlier backend/real-server frontend integration tests.
+- Notification delivery remains Phase 5. The frontend is unchanged by this checkpoint.
