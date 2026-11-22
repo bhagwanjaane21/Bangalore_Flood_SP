@@ -10,6 +10,7 @@
     header { padding: 12px 24px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
     h1 { margin: 0; font-size: 1.15rem; font-weight: 700; color: #38bdf8; }
     .badge { padding: 5px 14px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; background: #22c55e; color: black; transition: all 0.3s; }
+    #detour-banner { display: none; background: #991b1b; color: #fef2f2; padding: 10px 24px; font-size: 0.88rem; font-weight: 600; border-bottom: 1px solid #ef4444; text-align: center; letter-spacing: 0.02em; }
     #container { display: flex; flex: 1; overflow: hidden; }
     #map { flex: 2; height: 100%; }
     #sidebar { flex: 1; max-width: 440px; background: #1e293b; border-left: 1px solid #334155; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
@@ -32,6 +33,11 @@
     </div>
     <div id="system-badge" class="badge">SYSTEM NORMAL</div>
   </header>
+
+  <div id="detour-banner">
+    🚨 CRITICAL FLOOD ALERT AT MANYATA GATE 4: Avoid Thanisandra Main Road (Red Zone) — Follow Green Detour Corridor toward Bellary Road (NH44) / Hebbal Flyover!
+  </div>
+
   <div id="container">
     <div id="map"></div>
     <div id="sidebar">
@@ -53,12 +59,15 @@
 
     const sensorLayerGroup = L.layerGroup().addTo(map);
     const bypassLayerGroup = L.layerGroup().addTo(map);
+    const detourLayerGroup = L.layerGroup(); // RED alert aane par automatically on hoga
 
     L.control.layers(null, {
       "Telemetry Sensors": sensorLayerGroup,
-      "1.6 km Bypass Canal": bypassLayerGroup
+      "1.6 km Bypass Canal": bypassLayerGroup,
+      "Safe Detour Routes": detourLayerGroup
     }, { collapsed: false }).addTo(map);
 
+    // 1. 1.6 km Bypass Canal GeoJSON Layer
     fetch("../01_spatial_data/manyata_bypass_1.6km.geojson")
       .then(res => res.json())
       .then(geojsonData => {
@@ -75,6 +84,50 @@
         }).addTo(bypassLayerGroup);
       })
       .catch(err => console.error("Bypass GeoJSON load nahi hui:", err));
+
+    // 2. Safe Commuter Detour Routing Polylines (Flood Danger Zone vs Safe Exit Routes)
+    const floodedRoadCoords = [
+      [13.0515, 77.6195],
+      [13.0485, 77.6183],
+      [13.0458, 77.6168]
+    ];
+    L.polyline(floodedRoadCoords, {
+      color: "#ef4444",
+      weight: 7,
+      opacity: 0.9,
+      dashArray: "6, 8"
+    })
+    .bindPopup("<b>⛔ FLOODED DANGER ZONE</b><br>Thanisandra Main Road / Manyata Gate 4<br>Do not enter — High waterlogging risk")
+    .addTo(detourLayerGroup);
+
+    const safeExitHebbalCoords = [
+      [13.0485, 77.6183],
+      [13.0472, 77.6135],
+      [13.0455, 77.6050],
+      [13.0442, 77.5960]
+    ];
+    L.polyline(safeExitHebbalCoords, {
+      color: "#10b981",
+      weight: 6,
+      opacity: 0.95
+    })
+    .bindPopup("<b>✅ SAFE DETOUR CORRIDOR 1</b><br>Outer Ring Road Westbound → Hebbal Flyover / Bellary Road (NH44)")
+    .addTo(detourLayerGroup);
+
+    const safeExitNorthCoords = [
+      [13.0535, 77.6155],
+      [13.0575, 77.6110],
+      [13.0610, 77.6030],
+      [13.0635, 77.5945]
+    ];
+    L.polyline(safeExitNorthCoords, {
+      color: "#10b981",
+      weight: 6,
+      opacity: 0.95,
+      dashArray: "12, 6"
+    })
+    .bindPopup("<b>✅ SAFE DETOUR CORRIDOR 2</b><br>Rachenahalli – Jakkur Bypass → Bellary Road (NH44) Northbound")
+    .addTo(detourLayerGroup);
 
     let markers = {};
 
@@ -102,7 +155,7 @@
       markers[id] = marker;
     }
 
-    // Chart.js Live Hydrograph Setup
+    // 3. Chart.js Live Hydrograph Setup
     const ctx = document.getElementById('hydrographChart').getContext('2d');
     const hydroChart = new Chart(ctx, {
       type: 'line',
@@ -126,6 +179,8 @@
         }
       }
     });
+
+    let isDetourActive = false;
 
     async function updateStatus() {
       try {
@@ -156,6 +211,23 @@
           if (markers[id]) {
             markers[id].setStyle({ fillColor: colorMap[s.alert_level] || "#22c55e" });
             markers[id].setPopupContent(`<b>${id}: ${s.name}</b><br>Level: ${s.alert_level}<br>Depth: ${s.water_depth_m.toFixed(2)} m<br>Lead Time: ${s.lead_time}`);
+          }
+        }
+
+        // Toggle Safe Commuter Detour Routes when SENSOR_03 hits RED alert
+        const sensor3Red = data["SENSOR_03"] && data["SENSOR_03"].alert_level === "RED";
+        const detourBanner = document.getElementById("detour-banner");
+        if (sensor3Red) {
+          detourBanner.style.display = "block";
+          if (!isDetourActive) {
+            detourLayerGroup.addTo(map);
+            isDetourActive = true;
+          }
+        } else {
+          detourBanner.style.display = "none";
+          if (isDetourActive) {
+            map.removeLayer(detourLayerGroup);
+            isDetourActive = false;
           }
         }
 
