@@ -42,8 +42,42 @@ Twelve regression cases were added for the three PR review findings. They fail
 on the original PR and pass with the follow-up fixes. They cover RED/GREEN with
 stale/unknown data, configurable held recovery, confirmed/partial recovery,
 legacy decision metadata, historical provenance, polling/refresh/error recovery
-and safe escaping. Desktop/mobile visual verification and physical-device LAN
-access remain separate from these automated behavior checks.
+and safe escaping. Browser checks and physical-device LAN access are tracked
+separately from these automated behavior checks.
+
+## Demo-readiness checkpoint — 22 November 2026
+
+- Cards show `data_age_seconds` from the backend, including in accelerated
+  simulations. Missing/invalid ages say Unknown; the browser does not infer age
+  from the simulated observation clock.
+- Observation quality flags have readable notes. A sudden change requests a
+  check without declaring a sensor fault or overriding the stored alert level.
+  Unrecognized flags receive a generic note instead of exposing internal names.
+- The sidebar scrolls at desktop widths; its content does not shrink to fit.
+  Card titles and event headers wrap on narrow screens. The timeline can receive
+  keyboard focus for scrolling.
+- Actual browser checks at **360, 390, 768, 800, 801 and 1366 px** found no page
+  horizontal overflow or overflowing cards/chart/event boxes. The map, external
+  chart library and map tiles loaded during this check. Availability still
+  depends on an internet connection.
+- Browser/API observations covered empty startup, sustained rise, held recovery,
+  confirmed recovery, connection loss and stale data. Stale cards showed no
+  current actions; the three stored historical events remained available.
+- **210 Python tests and 24 dashboard tests passed**. The five additional
+  dashboard cases cover age/provenance, readable quality evidence, unsafe/future
+  flags and the backend's `normal` decision kind.
+
+Screenshots: [desktop empty](review/desktop-empty.jpg),
+[desktop alert](review/desktop-held-recovery.jpg),
+[desktop timeline](review/desktop-recovery-timeline.jpg),
+[connection error](review/desktop-connection-error.jpg),
+[mobile alert](review/mobile-held-recovery.jpg),
+[mobile stale](review/mobile-stale.jpg).
+Measured layout results are in [layout-checks.json](review/layout-checks.json)
+and [browser-checks.json](review/browser-checks.json).
+
+These are browser viewport checks, not a physical phone/LAN test. No live
+Telegram delivery, road passability or field calibration is established.
 
 Start the backend with `python 02_backend/run.py` and open its `/` page. Serve the
 page through FastAPI so the relative API URLs use the same origin. A standalone

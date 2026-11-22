@@ -6,14 +6,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
+    * { box-sizing: border-box; }
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #0f172a; color: #f8fafc; }
     header { padding: 12px 24px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
     h1 { margin: 0; font-size: 1.15rem; font-weight: 700; color: #38bdf8; }
     .badge { padding: 5px 14px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; background: #64748b; color: white; transition: all 0.3s; }
     #detour-banner { display: none; background: #991b1b; color: #fef2f2; padding: 10px 24px; font-size: 0.88rem; font-weight: 600; border-bottom: 1px solid #ef4444; text-align: center; letter-spacing: 0.02em; }
-    #container { display: flex; flex: 1; overflow: hidden; }
-    #map { flex: 2; height: 100%; }
-    #sidebar { flex: 1; max-width: 440px; background: #1e293b; border-left: 1px solid #334155; padding: 16px 16px 40px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+    header, #detour-banner { flex-shrink: 0; }
+    #container { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+    #map { flex: 1; min-width: 0; height: 100%; }
+    #sidebar { flex: 0 0 440px; max-width: 45%; min-width: 0; background: #1e293b; border-left: 1px solid #334155; padding: 16px 16px 40px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; overflow-wrap: anywhere; }
+    #sidebar > * { flex-shrink: 0; }
     .card { background: #0f172a; border-radius: 8px; padding: 14px; border: 1px solid #334155; border-left: 6px solid #64748b; transition: all 0.3s ease; margin-bottom: 10px; }
     .card:last-child { margin-bottom: 0; }
     .card.RED { border-left-color: #ef4444; }
@@ -36,16 +39,18 @@
     .alert-event.ORANGE { border-left-color: #f97316; }
     .alert-event.YELLOW { border-left-color: #eab308; }
     .alert-event.GREEN { border-left-color: #22c55e; }
-    .event-header { display: flex; justify-content: space-between; font-weight: 700; color: #f8fafc; margin-bottom: 2px; }
+    .event-header { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; font-weight: 700; color: #f8fafc; margin-bottom: 2px; }
     .chart-box { height: 230px; }
     .card.UNKNOWN { border-left-color: #64748b; }
-    .card-title { gap: 12px; }
+    .card-title { gap: 6px 12px; flex-wrap: wrap; }
+    .card-title > span:first-child { flex: 1 1 160px; min-width: 0; }
+    .quality-notes { margin: 4px 0; padding-left: 18px; }
     @media (max-width: 800px) {
       body { height: auto; min-height: 100vh; }
-      header { gap: 12px; flex-wrap: wrap; }
+      header { gap: 12px; flex-wrap: wrap; padding: 12px 16px; overflow-wrap: anywhere; }
       #container { flex-direction: column; overflow: visible; }
       #map { flex: none; height: 45vh; min-height: 300px; }
-      #sidebar { max-width: none; border-left: 0; border-top: 1px solid #334155; }
+      #sidebar { flex: none; max-width: none; width: 100%; border-left: 0; border-top: 1px solid #334155; padding: 16px 12px 32px; overflow-y: visible; }
     }
   </style>
 </head>
@@ -77,7 +82,7 @@
 
       <h3 style="margin: 6px 0 0 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Alert History</h3>
       <p id="alert-history-note" class="status-note">Historical transitions: freshness describes evidence when recorded, not current conditions.</p>
-      <div id="alert-history" class="history-panel" aria-live="polite">
+      <div id="alert-history" class="history-panel" role="region" aria-label="Historical alert transitions" tabindex="0" aria-live="polite">
         <p class="status-note">Loading alert transitions...</p>
       </div>
     </div>
@@ -188,6 +193,32 @@
       return samples > 0 ? `Insufficient window (${samples} sample${samples === 1 ? '' : 's'})` : 'Insufficient samples';
     }
 
+    function formatDataAge(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) return 'Unknown';
+      if (seconds < 1) return 'Less than 1 s';
+      if (seconds < 60) return `${Math.floor(seconds)} s`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)} min ${Math.floor(seconds % 60)} s`;
+      return `${Math.floor(seconds / 3600)} h ${Math.floor((seconds % 3600) / 60)} min`;
+    }
+
+    function qualityNotes(flags) {
+      if (!Array.isArray(flags)) return [];
+      const labels = {
+        abrupt_change: 'Sudden depth change; check the reading. This alone does not confirm a sensor fault.',
+        insufficient_trend_samples: 'More observations are needed to establish a sustained trend.',
+        trend_span_too_short: 'Observations cover too little time to establish a sustained trend.',
+        trend_unavailable: 'A reliable trend could not be calculated.',
+        timestamp_unknown: 'Observation time is uncertain.',
+        source_changed: 'The observation source changed; the trend needs a new continuous sequence.',
+        sampling_gap: 'A gap between readings interrupts the trend evidence.',
+        reported_rate_unverified: 'The submitted rise rate has not been verified from stored observations.',
+        data_stale: 'The reading is old; current conditions cannot be established.',
+        data_unknown: 'Reading freshness is unknown; current conditions cannot be established.',
+      };
+      return [...new Set(flags.map(flag => Object.prototype.hasOwnProperty.call(labels, flag)
+        ? labels[flag] : 'Additional observation quality information is unavailable.'))];
+    }
+
     function formatRecoveryProgress(reading) {
       if (!reading) return 'Awaiting data';
       if (reading.data_status !== 'fresh') {
@@ -202,7 +233,7 @@
           ? ` (${count} qualifying observation${count === 1 ? '' : 's'})` : '';
         return `Recovery being checked${progress}`;
       }
-      if (reading.alert_kind === 'depth' || reading.alert_kind === 'trend') {
+      if (['normal', 'depth', 'trend'].includes(reading.alert_kind)) {
         return reading.alert_level === 'GREEN' ? 'No active alert' : 'No recovery confirmation recorded';
       }
       return 'Recovery status unavailable';
@@ -240,12 +271,13 @@
           ? `<div class="stale-warning">Stale/unknown warning: ${escapeHtml(reading.data_warning || 'Reading is not fresh; alert colour cannot confirm current conditions.')}</div>`
           : '';
         const reasonText = reading ? (reading.alert_reason || 'No recorded reason (legacy observation)') : '';
-        const flagsText = reading && Array.isArray(reading.quality_flags) && reading.quality_flags.length
-          ? ` · Flags: ${reading.quality_flags.join(', ')}`
-          : '';
+        const notes = qualityNotes(reading && reading.quality_flags);
+        const notesHtml = notes.length
+          ? `<ul class="quality-notes status-note" aria-label="Observation quality notes">${notes.map(note => `<li>${escapeHtml(note)}</li>`).join('')}</ul>` : '';
         const explanationHtml = reading ? `
           <div class="explanation-box">
-            <div class="reason-text">Reason: ${escapeHtml(reasonText)}${escapeHtml(flagsText)}</div>
+            <div class="reason-text">Reason: ${escapeHtml(reasonText)}</div>
+            ${notesHtml}
             ${fresh && reading.alert_action ? `<div class="status-note">Action: ${escapeHtml(reading.alert_action)}</div>` : ''}
             <div class="trend-text">Sustained trend: ${escapeHtml(formatSustainedTrend(reading))}</div>
             <div class="recovery-text">Recovery progress: ${escapeHtml(formatRecoveryProgress(reading))}</div>
@@ -253,6 +285,7 @@
         card.innerHTML = `
           <div class="card-title"><span>${escapeHtml(id)}: ${escapeHtml(name)}</span><span class="depth-stat" style="color:${colorMap[level]}">${depth}</span></div>
           <div class="status-note">${escapeHtml(state)}</div>
+          <div class="status-note">Data age: ${escapeHtml(formatDataAge(reading && reading.data_age_seconds))}</div>
           ${staleHtml}
           ${reading ? `<div class="lead-time">Assumed travel window: ${escapeHtml(reading.lead_time)} (unvalidated)</div>` : ''}
           <div class="status-note">Rise / fall: ${escapeHtml(rate)}</div>

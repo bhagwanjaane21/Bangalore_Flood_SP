@@ -149,7 +149,8 @@ test('sensor cards display alert reasons, sustained trends, recovery progress, a
 
   const card1 = app.element('sensor-cards').children[0].innerHTML;
   assert.match(card1, /Depth 0\.65 m &gt;= 0\.50 m YELLOW threshold/);
-  assert.match(card1, /abrupt_change/);
+  assert.match(card1, /Sudden depth change; check the reading/);
+  assert.doesNotMatch(card1, /abrupt_change/);
   assert.match(card1, /\+3\.40 cm\/min \(4 samples\)/);
   assert.match(card1, /Recovery being checked \(1 qualifying observation\)/);
 
@@ -352,4 +353,70 @@ test('history fields are escaped and absent provenance stays unknown', async () 
   card = app.element('alert-history').children[0].innerHTML;
   assert.match(card, /Source: unknown/);
   assert.match(card, /Evidence when recorded: unknown/);
+});
+
+test('data age uses the backend age, including simulated clocks, and updates on polling', async () => {
+  const app = await boot();
+  app.state.status = { SENSOR_01: reading('GREEN', 'fresh', {
+    observed_at: '2099-01-01T00:00:00Z', data_age_seconds: 12.4,
+  }) };
+  await app.poll();
+  assert.match(app.element('sensor-cards').children[0].innerHTML, /Data age: 12 s/);
+  app.state.status.SENSOR_01.data_age_seconds = 125;
+  app.state.status.SENSOR_01.data_status = 'stale';
+  await app.poll();
+  assert.match(app.element('sensor-cards').children[0].innerHTML, /Data age: 2 min 5 s/);
+  assert.doesNotMatch(app.element('sensor-cards').children[0].innerHTML, /Action:/);
+});
+
+test('missing, invalid and unavailable ages stay unknown rather than becoming zero', async () => {
+  const app = await boot();
+  assert.match(app.element('sensor-cards').children[0].innerHTML, /Data age: Unknown/);
+  for (const value of [null, undefined, -1, NaN, Infinity, '12']) {
+    app.state.status = { SENSOR_01: reading('GREEN', 'unknown', { data_age_seconds: value }) };
+    await app.poll();
+    assert.match(app.element('sensor-cards').children[0].innerHTML, /Data age: Unknown/);
+  }
+  app.state.status.SENSOR_01.data_age_seconds = 0;
+  await app.poll();
+  assert.match(app.element('sensor-cards').children[0].innerHTML, /Data age: Less than 1 s/);
+  assert.equal(app.read('formatDataAge(3661)'), '1 h 1 min');
+});
+
+test('quality notes explain limited evidence without changing the stored hazard decision', async () => {
+  const app = await boot();
+  app.state.status = { SENSOR_01: reading('RED', 'fresh', { quality_flags: [
+    'abrupt_change', 'abrupt_change', 'insufficient_trend_samples', 'sampling_gap',
+  ] }) };
+  await app.poll();
+  const card = app.element('sensor-cards').children[0].innerHTML;
+  assert.match(card, /Sudden depth change; check the reading/);
+  assert.match(card, /does not confirm a sensor fault/);
+  assert.match(card, /More observations are needed/);
+  assert.match(card, /gap between readings/);
+  assert.doesNotMatch(card, /abrupt_change|insufficient_trend_samples|sampling_gap/);
+  assert.equal((card.match(/Sudden depth change/g) || []).length, 1);
+  assert.equal(app.element('sensor-cards').children[0].className, 'card RED');
+});
+
+test('future or unsafe quality flags receive a generic note without rendering raw content', async () => {
+  const app = await boot();
+  app.state.status = { SENSOR_01: reading('GREEN', 'fresh', {
+    quality_flags: ['<img onerror=bad()>', '__proto__', 'unrecognized_future_flag'],
+  }) };
+  await app.poll();
+  const card = app.element('sensor-cards').children[0].innerHTML;
+  assert.match(card, /Additional observation quality information is unavailable/);
+  assert.doesNotMatch(card, /<img|__proto__|unrecognized_future_flag/);
+  app.state.status.SENSOR_01.quality_flags = null;
+  await app.poll();
+  assert.doesNotMatch(app.element('sensor-cards').children[0].innerHTML, /Observation quality notes/);
+});
+
+test('fresh backend normal decisions are recognized without inventing recovery evidence', async () => {
+  const app = await boot();
+  app.state.status = { SENSOR_01: reading('GREEN', 'fresh', { alert_kind: 'normal' }) };
+  await app.poll();
+  assert.match(app.element('sensor-cards').children[0].innerHTML, /No active alert/);
+  assert.doesNotMatch(app.element('sensor-cards').children[0].innerHTML, /Recovery confirmed|Recovery status unavailable/);
 });
