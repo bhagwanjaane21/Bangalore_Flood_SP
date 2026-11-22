@@ -95,3 +95,25 @@ def test_live_sensor_history_duplicates_and_staleness(server):
         connection.execute("UPDATE telemetry SET received_at = ? WHERE node_id = 'SENSOR_03'", (old_receipt,))
         connection.commit()
     assert client.get("/api/sensors/status").json()["SENSOR_03"]["data_status"] == "stale"
+
+
+def test_alert_history_and_explanation_fields_contract(server):
+    client, _ = server
+    assert client.get("/api/alerts").json() == []
+    client.post("/api/telemetry", json={
+        "node_id": "SENSOR_01", "water_depth_m": 0.65,
+        "observed_at": "2026-01-01T00:00:00Z", "source": "simulated",
+    })
+    status = client.get("/api/sensors/status").json()["SENSOR_01"]
+    assert status["alert_level"] == "YELLOW"
+    assert status["alert_reason"]
+    assert "recovery_count" in status
+    assert "trend_rate_cm_min" in status
+
+    alerts = client.get("/api/alerts?limit=20").json()
+    assert len(alerts) == 1
+    assert alerts[0]["node_id"] == "SENSOR_01"
+    assert alerts[0]["previous_level"] == "GREEN"
+    assert alerts[0]["new_level"] == "YELLOW"
+    assert alerts[0]["event_type"] == "escalation"
+    assert alerts[0]["reason"]
