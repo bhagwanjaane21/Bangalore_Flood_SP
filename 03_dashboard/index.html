@@ -13,8 +13,9 @@
     #detour-banner { display: none; background: #991b1b; color: #fef2f2; padding: 10px 24px; font-size: 0.88rem; font-weight: 600; border-bottom: 1px solid #ef4444; text-align: center; letter-spacing: 0.02em; }
     #container { display: flex; flex: 1; overflow: hidden; }
     #map { flex: 2; height: 100%; }
-    #sidebar { flex: 1; max-width: 440px; background: #1e293b; border-left: 1px solid #334155; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
-    .card { background: #0f172a; border-radius: 8px; padding: 14px; border: 1px solid #334155; border-left: 6px solid #64748b; transition: all 0.3s ease; }
+    #sidebar { flex: 1; max-width: 440px; background: #1e293b; border-left: 1px solid #334155; padding: 16px 16px 40px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+    .card { background: #0f172a; border-radius: 8px; padding: 14px; border: 1px solid #334155; border-left: 6px solid #64748b; transition: all 0.3s ease; margin-bottom: 10px; }
+    .card:last-child { margin-bottom: 0; }
     .card.RED { border-left-color: #ef4444; }
     .card.ORANGE { border-left-color: #f97316; }
     .card.YELLOW { border-left-color: #eab308; }
@@ -22,8 +23,20 @@
     .card-title { font-weight: 600; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
     .lead-time { color: #38bdf8; font-weight: 700; font-size: 0.85rem; margin-bottom: 4px; }
     .depth-stat { font-size: 1.25rem; font-weight: 800; white-space: nowrap; margin-left: 8px; }
-    .chart-box { background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155; }
+    .chart-box { background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155; flex-shrink: 0; }
     .status-note { font-size: 0.78rem; line-height: 1.5; color: #cbd5e1; margin: 0; }
+    .stale-warning { margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: rgba(234, 179, 8, 0.14); border: 1px solid rgba(234, 179, 8, 0.45); color: #fde047; font-size: 0.76rem; line-height: 1.4; }
+    .explanation-box { margin-top: 8px; padding-top: 8px; border-top: 1px solid #1e293b; display: flex; flex-direction: column; gap: 3px; }
+    .reason-text { font-size: 0.78rem; color: #e2e8f0; font-weight: 500; }
+    .trend-text { font-size: 0.76rem; color: #7dd3fc; }
+    .recovery-text { font-size: 0.76rem; color: #86efac; }
+    .history-panel { background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 8px; min-height: 72px; max-height: 240px; overflow-y: auto; flex-shrink: 0; }
+    .alert-event { padding: 8px 10px; border-radius: 6px; background: #1e293b; border-left: 4px solid #64748b; font-size: 0.78rem; line-height: 1.4; }
+    .alert-event.RED { border-left-color: #ef4444; }
+    .alert-event.ORANGE { border-left-color: #f97316; }
+    .alert-event.YELLOW { border-left-color: #eab308; }
+    .alert-event.GREEN { border-left-color: #22c55e; }
+    .event-header { display: flex; justify-content: space-between; font-weight: 700; color: #f8fafc; margin-bottom: 2px; }
     .chart-box { height: 230px; }
     .card.UNKNOWN { border-left-color: #64748b; }
     .card-title { gap: 12px; }
@@ -61,6 +74,11 @@
         <canvas id="hydrographChart" height="190"></canvas>
       </div>
       <p id="history-status" class="status-note">Loading stored observations...</p>
+
+      <h3 style="margin: 6px 0 0 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Alert History</h3>
+      <div id="alert-history" class="history-panel" aria-live="polite">
+        <p class="status-note">Loading alert transitions...</p>
+      </div>
     </div>
   </div>
 
@@ -159,6 +177,28 @@
       return points;
     }
 
+    function formatSustainedTrend(reading) {
+      if (!reading) return 'Unavailable';
+      const samples = Number.isFinite(reading.trend_sample_count) ? reading.trend_sample_count : 0;
+      if (Number.isFinite(reading.trend_rate_cm_min)) {
+        const sign = reading.trend_rate_cm_min > 0 ? '+' : '';
+        return `${sign}${reading.trend_rate_cm_min.toFixed(2)} cm/min (${samples} sample${samples === 1 ? '' : 's'})`;
+      }
+      return samples > 0 ? `Insufficient window (${samples} sample${samples === 1 ? '' : 's'})` : 'Insufficient samples';
+    }
+
+    function formatRecoveryProgress(reading) {
+      if (!reading) return 'Awaiting data';
+      const count = Number.isFinite(reading.recovery_count) ? reading.recovery_count : 0;
+      if (reading.alert_level === 'GREEN') {
+        return count > 0 ? `Recovered (${count}/2 steps)` : 'Normal (no active alert)';
+      }
+      if (reading.data_status !== 'fresh') {
+        return `Paused (${count}/2 fresh below-threshold steps; stale/unknown data)`;
+      }
+      return `${count}/2 consecutive fresh readings ≥ 0.05 m below entry threshold`;
+    }
+
     function setBadge(text, level = 'UNKNOWN') {
       const badge = document.getElementById('system-badge');
       badge.textContent = text;
@@ -187,13 +227,29 @@
         const depth = reading && Number.isFinite(reading.water_depth_m) ? `${reading.water_depth_m.toFixed(2)} m` : '—';
         const state = reading ? `${reading.data_status.toUpperCase()} · last level ${reading.alert_level}` : 'NO DATA';
         const rate = reading && Number.isFinite(reading.rate_of_rise_cm_min) ? `${reading.rate_of_rise_cm_min.toFixed(2)} cm/min (${reading.rate_source})` : 'Unknown';
+        const staleHtml = reading && !fresh
+          ? `<div class="stale-warning">Stale/unknown warning: ${escapeHtml(reading.data_warning || 'Reading is not fresh; alert colour cannot confirm current conditions.')}</div>`
+          : '';
+        const reasonText = reading ? (reading.alert_reason || 'No recorded reason (legacy observation)') : '';
+        const flagsText = reading && Array.isArray(reading.quality_flags) && reading.quality_flags.length
+          ? ` · Flags: ${reading.quality_flags.join(', ')}`
+          : '';
+        const explanationHtml = reading ? `
+          <div class="explanation-box">
+            <div class="reason-text">Reason: ${escapeHtml(reasonText)}${escapeHtml(flagsText)}</div>
+            ${reading.alert_action ? `<div class="status-note">Action: ${escapeHtml(reading.alert_action)}</div>` : ''}
+            <div class="trend-text">Sustained trend: ${escapeHtml(formatSustainedTrend(reading))}</div>
+            <div class="recovery-text">Recovery progress: ${escapeHtml(formatRecoveryProgress(reading))}</div>
+          </div>` : '';
         card.innerHTML = `
           <div class="card-title"><span>${escapeHtml(id)}: ${escapeHtml(name)}</span><span class="depth-stat" style="color:${colorMap[level]}">${depth}</span></div>
           <div class="status-note">${escapeHtml(state)}</div>
+          ${staleHtml}
           ${reading ? `<div class="lead-time">Assumed travel window: ${escapeHtml(reading.lead_time)} (unvalidated)</div>` : ''}
           <div class="status-note">Rise / fall: ${escapeHtml(rate)}</div>
           <div class="status-note">Observed: ${escapeHtml(timeLabel(reading && reading.observed_at))}</div>
-          <div class="status-note">Source: ${escapeHtml(reading ? reading.source : 'unknown')}</div>`;
+          <div class="status-note">Source: ${escapeHtml(reading ? reading.source : 'unknown')}</div>
+          ${explanationHtml}`;
         container.appendChild(card);
         if (markers[id]) {
           markers[id].setStyle({ fillColor: colorMap[level] });
@@ -216,6 +272,50 @@
       if (map && detourLayerGroup) {
         if (freshRed && !map.hasLayer(detourLayerGroup)) detourLayerGroup.addTo(map);
         else if (!freshRed && map.hasLayer(detourLayerGroup)) map.removeLayer(detourLayerGroup);
+      }
+    }
+
+    function renderAlertHistory(events) {
+      const panel = document.getElementById('alert-history');
+      if (!panel) return;
+      panel.innerHTML = '';
+      if (!Array.isArray(events) || !events.length) {
+        const empty = document.createElement('p');
+        empty.className = 'status-note';
+        empty.textContent = 'No alert transitions recorded yet.';
+        panel.appendChild(empty);
+        return;
+      }
+      for (const event of [...events].reverse()) {
+        const item = document.createElement('div');
+        const level = colorMap[event.new_level] ? event.new_level : 'UNKNOWN';
+        item.className = `alert-event ${level}`;
+        const depthText = Number.isFinite(event.water_depth_m) ? `${event.water_depth_m.toFixed(2)} m` : '—';
+        const kindLabel = event.event_type ? event.event_type.toUpperCase() : 'TRANSITION';
+        const statusAtEvent = event.data_status_at_event ? ` · ${event.data_status_at_event}` : '';
+        item.innerHTML = `
+          <div class="event-header">
+            <span>${escapeHtml(event.node_id)}: ${escapeHtml(event.previous_level)} → ${escapeHtml(event.new_level)}</span>
+            <span style="color:${colorMap[level]}">${escapeHtml(kindLabel)}</span>
+          </div>
+          <div class="reason-text">${escapeHtml(event.reason || 'State transition')}</div>
+          <div class="status-note">Depth: ${escapeHtml(depthText)} · Observed: ${escapeHtml(timeLabel(event.observed_at))}${escapeHtml(statusAtEvent)}</div>`;
+        panel.appendChild(item);
+      }
+    }
+
+    async function refreshAlerts() {
+      const panel = document.getElementById('alert-history');
+      if (!panel) return;
+      try {
+        const events = await getJson('/api/alerts?limit=20');
+        renderAlertHistory(events);
+      } catch (error) {
+        panel.innerHTML = '';
+        const errNote = document.createElement('p');
+        errNote.className = 'status-note';
+        errNote.textContent = 'Alert history unavailable; retrying...';
+        panel.appendChild(errNote);
       }
     }
 
@@ -247,7 +347,7 @@
         setBadge('CONNECTION UNAVAILABLE');
         document.getElementById('sensor-cards').textContent = 'Unable to read current telemetry. Retrying...';
       }
-      await refreshHistory();
+      await Promise.all([refreshHistory(), refreshAlerts()]);
       setTimeout(poll, 2000); // Schedule after completion to avoid overlapping requests.
     }
 
