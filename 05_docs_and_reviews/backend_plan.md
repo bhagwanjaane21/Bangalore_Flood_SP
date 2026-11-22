@@ -1,0 +1,143 @@
+# STREAM backend plan
+
+Prepared: 22 November 2026. Prototype review: 25 November 2026.
+Owner: Vernit. Working branch: `backend/vernit`.
+Baseline: `origin/main` at `c7a2e6f50767bb4a5b3c9f1769fc15806162f3d1`.
+
+## Scope
+
+Keep the approved STREAM project: three virtual checkpoints on the
+Rachenahalli–Manyata corridor, telemetry ingestion, a GIS dashboard, flood
+alerts, and a reproducible software demonstration. Physical hardware is not
+required for this review. Frontend implementation stays with the frontend team.
+
+Finish a reliable backend prototype before adding optional features. Retain
+the current repository layout. This plan is a proposed implementation sequence;
+only checkpoint 0 has been completed.
+
+## Checkpoints and completion evidence
+
+| Checkpoint | Work | Complete when | Suggested commit |
+| --- | --- | --- | --- |
+| 0 — Review and plan | Review main and both open PRs; reproduce baseline failures; prepare this plan. | Findings and implementation checkpoints are recorded. | `docs: record backend plan and frontend PR review` |
+| 1 — Reliable startup | Make backend imports and database paths independent of working directory; centralize configuration; document one startup command; provide health checks; ignore generated data and stop tracking the demo DB while preserving the schema initializer. | A fresh checkout starts with an empty generated DB; `/health` and `/docs` respond; existing API routes still work. | `fix: make backend startup and configuration reproducible` |
+| 2 — Telemetry and frontend contract | Validate sensor IDs, finite nonnegative depths, timestamps and battery values; distinguish observation and receipt time; store source/provenance; add bounded history and bypass serving. | Invalid payloads are rejected; valid data persists across restart; history is chronological and survives refresh; both spatial routes work. | `feat: add validated telemetry history and spatial APIs` |
+| 3 — One alert engine | Use one implementation for ingestion and status; calculate signed rise/fall trends from stored readings; explain alerts; separate data freshness from last observed hazard; record alert transitions and add recovery hysteresis. | Depth boundaries, rapid rises, recovery, missing data and stale data behave predictably; a local critical depth is never held back waiting for other sensors. | `feat: centralize alerts with trend and freshness checks` |
+| 4 — Repeatable simulation | Replace the uncontrolled sine-wave demo with named, finite scenarios: normal, progressing surge, recovery, isolated spike and sensor dropout. Make base URL and speed configurable; label accelerated time. | Each scenario has documented expected results, can be replayed without manual database edits, and has a clear completion signal. | `feat: add reproducible flood demonstration scenarios` |
+| 5 — Notifications | Repair the dispatcher; use environment configuration; default to dry-run without credentials; read backend alert events; handle retries and avoid treating failed delivery as success. | Mocked delivery and failure tests pass; dry-run shows the expected action card once per intended transition. Live delivery is checked only against an explicitly selected demo destination. | `fix: make alert dispatch observable and repeatable` |
+| 6 — Integration and handover | Integrate with the team's combined frontend, verify phone/LAN access, document setup and API examples, rehearse scenarios and record results. | A teammate can clone, start, replay and explain the prototype using the written instructions. No unresolved defect breaks the main demonstration. | `test: verify prototype integration and document demo` |
+
+After each checkpoint: run relevant tests, update the progress ledger below,
+and make one focused commit. Fix new failures before starting the next checkpoint.
+Do not run a full test suite repeatedly without a new change or unresolved risk.
+
+## Schedule
+
+- **22 November:** finish checkpoint 0, then checkpoint 1 and publish the proposed
+  API contract for the frontend team's use. Start checkpoint 2.
+- **23 November:** finish telemetry/history and the common alert engine.
+- **24 November:** finish scenarios and notification dry-run; integrate the
+  frontend; only then consider stretch work.
+- **25 November:** rehearse the already working demo and fix blockers. Avoid
+  adding new features immediately before the review.
+
+These are target checkpoints, not guarantees. If time slips, prioritize
+checkpoints 1–4 and 6; keep notification delivery in dry-run if necessary.
+
+## Frontend API contract to implement
+
+Preserve existing paths and keys wherever possible. New fields are additive.
+Coordinate any different response shape before implementing it.
+
+| Endpoint | Purpose / agreed shape to target |
+| --- | --- |
+| `GET /health` | Backend/database readiness and prototype mode. |
+| `GET /api/spatial/sensors` | Existing GeoJSON sensor catalog; source of expected sensor IDs and coordinates. |
+| `GET /api/spatial/bypass` | Bypass GeoJSON; distinguish missing data from a valid layer. Geometry must come from the GIS team, not invented coordinates. |
+| `GET /01_spatial_data/manyata_bypass_1.6km.geojson` | Narrow compatibility alias for the URL used by both current frontend PRs. |
+| `POST /api/telemetry` | Preserve `node_id`, `water_depth_m`, optional `rate_of_rise_cm_min`, and `battery_voltage`; introduce optional timezone-aware `observed_at` and `source`. Store receipt time separately; backend trend is authoritative when enough data exists. |
+| `GET /api/sensors/status` | Preserve the map keyed by sensor ID and existing depth, rise-rate, voltage, alert, lead-time and last-updated keys. Add observation ID/time, `data_status`, `alert_reason`, and provenance. |
+| `GET /api/sensors/history/{node_id}?limit=120` | Bounded list of persisted readings, oldest first, with observation IDs and UTC timestamps. Cap the limit, for example at 1,000. Unknown IDs receive 404. |
+| `GET /api/alerts?limit=50` | Persisted alert transitions with stable IDs, previous/new level, sensor, reason and event time; useful for review evidence and notification deduplication. |
+
+### Compatibility and data semantics
+
+- Existing clients can still send their original payloads. If observation time is
+  omitted, use receipt time and record that it was assigned by the server.
+- Store timezone-aware UTC times; display local time in the frontend. Validate
+  ordering and define duplicate/out-of-order handling so delayed readings cannot
+  silently replace the latest observation.
+- Do not trust a client-provided rise rate as a verified observation. Derive trends
+  over a defined interval; avoid a fabricated zero when there is insufficient data.
+- An absent sensor in the legacy status map means no reading exists. The frontend
+  must compare it with the sensor catalog and display no data, not zero depth.
+- Keep the last observed `alert_level` separate from `data_status`. Stale readings
+  cannot establish present safety. The frontend must show this distinction.
+- History charts must use observation timestamps/IDs, preserve gaps, and avoid
+  appending the same reading at every browser poll. Refresh reloads stored history.
+- Frontend requests should use relative URLs or a configurable API base URL.
+  `127.0.0.1` on a phone refers to the phone, not the backend laptop.
+- Keep `lead_time` as a display-compatible string, but mark assumed lead times
+  explicitly as unvalidated. Add a source field; do not present them as forecasts.
+- Maintain simulator observation time and real receipt time separately when using
+  accelerated scenarios. Freshness checks must not be confused by the demo clock.
+
+## Alert behaviour to implement and test
+
+Use existing depth thresholds as prototype configuration, recording their
+unvalidated status. Express all rates in cm/min and document any new rate rules.
+The README's midstream threshold differs from the code and must be reconciled
+explicitly rather than silently mixed into the implementation.
+
+Depth-based critical alerts remain immediate. Use persistence/hysteresis for
+recovery and lower-severity trend rules, not to suppress a critical local level.
+An isolated implausible reading can raise a quality warning; do not automatically
+classify every sudden rise as noise. Label sensor faults as uncertain.
+
+Tests should cover threshold boundaries, recovery without repeated chatter,
+stale/no readings, rapid rise below a depth threshold, invalid inputs,
+chronological history, duplicate/out-of-order handling, and notification failures.
+Use an isolated temporary database and mock external messaging.
+
+## Optional work after the complete prototype works
+
+1. **Corridor surge interpretation:** identify an observed upstream-to-downstream
+   rising sequence; expose an explanation and evidence quality. Describe this as
+   a candidate contribution under evaluation, not a validated hydraulic forecast.
+2. **Actuator simulation:** record intended pump/barrier states and manual
+   overrides as software-only events, with explicit reset/recovery behaviour.
+3. **ML experiment:** only if the team needs it and the core is stable. Define the
+   future target and horizon, compare with a simple baseline, split by complete
+   simulated storms, and label every metric as synthetic-data performance.
+   Do not publish an arbitrary rule score as an ML probability.
+
+The existing frontend's detour layer is illustrative. It cannot establish road
+passability. Dynamic road routing, city-wide prediction, field-calibrated lead
+times and physical actuation are outside the software prototype's completion claim.
+
+## Branch and integration workflow
+
+- Work locally in this workspace on `backend/vernit`, created from `origin/main`.
+- Keep frontend source changes with the frontend team. Backend owns `02_backend/`,
+  backend tests/configuration, and backend documentation. Coordinate ownership of
+  `04_notifications/` before modifying it if another teammate is maintaining it.
+- Use the checkpoint commits above. Update this ledger with the commit and test
+  result; each later implementation commit should include its ledger update.
+- When publishing is requested, use `git push -u origin backend/vernit` and open a
+  backend PR targeting `main`. If origin write access is unavailable, publish the
+  same branch to a personal fork and target the original repository.
+- Fetch upstream progress before integrating. Avoid force-pushing shared work.
+- Frontend PRs need reconciliation; do not merge both unchanged. See the separate
+  PR review. Test the combined frontend/backend before merging into `main`.
+
+## Progress ledger
+
+| Checkpoint | Status | Evidence |
+| --- | --- | --- |
+| 0 | Completed locally | Current repository and both PR heads reviewed; API smoke probes, mocked dispatcher probe, JS syntax checks and PR merge-tree check performed. See `frontend_pr_review.md`. |
+| 1 | Not started | — |
+| 2 | Not started | — |
+| 3 | Not started | — |
+| 4 | Not started | — |
+| 5 | Not started | — |
+| 6 | Not started | — |
