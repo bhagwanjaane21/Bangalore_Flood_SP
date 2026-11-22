@@ -21,6 +21,7 @@
     .card-title { font-weight: 600; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
     .lead-time { color: #38bdf8; font-weight: 700; font-size: 0.85rem; margin-bottom: 4px; }
     .depth-stat { font-size: 1.25rem; font-weight: 800; white-space: nowrap; margin-left: 8px; }
+    .chart-box { background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155; }
   </style>
 </head>
 <body>
@@ -34,15 +35,46 @@
   <div id="container">
     <div id="map"></div>
     <div id="sidebar">
-      <h3 style="margin-top: 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Telemetry Gauges</h3>
+      <h3 style="margin: 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Telemetry Gauges</h3>
       <div id="sensor-cards">Connecting to API...</div>
+
+      <h3 style="margin: 6px 0 0 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Live Hydrograph (Water Depth)</h3>
+      <div class="chart-box">
+        <canvas id="hydrographChart" height="190"></canvas>
+      </div>
     </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     const map = L.map('map').setView([13.053, 77.617], 14);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+    const sensorLayerGroup = L.layerGroup().addTo(map);
+    const bypassLayerGroup = L.layerGroup().addTo(map);
+
+    L.control.layers(null, {
+      "Telemetry Sensors": sensorLayerGroup,
+      "1.6 km Bypass Canal": bypassLayerGroup
+    }, { collapsed: false }).addTo(map);
+
+    fetch("../01_spatial_data/manyata_bypass_1.6km.geojson")
+      .then(res => res.json())
+      .then(geojsonData => {
+        L.geoJSON(geojsonData, {
+          style: {
+            color: "#00e5ff",
+            weight: 8,
+            opacity: 0.95,
+            dashArray: "10, 6"
+          },
+          onEachFeature: function (feature, layer) {
+            layer.bindPopup("<b>Manyata–Karle Concrete Bypass Canal</b><br>Length: ~1.6 km<br>Diverts storm surge toward Nagavara Lake");
+          }
+        }).addTo(bypassLayerGroup);
+      })
+      .catch(err => console.error("Bypass GeoJSON load nahi hui:", err));
 
     let markers = {};
 
@@ -53,14 +85,12 @@
       "RED": "#ef4444"
     };
 
-    // Sensor GPS fallback coordinates from your QGIS Shapefile
     const defaultCoords = {
       "SENSOR_01": [13.057039, 77.615071],
       "SENSOR_02": [13.052925, 77.618056],
       "SENSOR_03": [13.048505, 77.618309]
     };
 
-    // Initialize markers
     for (const [id, coords] of Object.entries(defaultCoords)) {
       const marker = L.circleMarker(coords, {
         radius: 9,
@@ -68,9 +98,34 @@
         color: "#ffffff",
         weight: 2,
         fillOpacity: 0.9
-      }).addTo(map).bindPopup(`<b>${id}</b><br>Connecting...`);
+      }).addTo(sensorLayerGroup).bindPopup(`<b>${id}</b><br>Connecting...`);
       markers[id] = marker;
     }
+
+    // Chart.js Live Hydrograph Setup
+    const ctx = document.getElementById('hydrographChart').getContext('2d');
+    const hydroChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'SENSOR_01 (Upstream)', data: [], borderColor: '#38bdf8', backgroundColor: '#38bdf8', tension: 0.3, borderWidth: 2, pointRadius: 2 },
+          { label: 'SENSOR_02 (Midstream)', data: [], borderColor: '#eab308', backgroundColor: '#eab308', tension: 0.3, borderWidth: 2, pointRadius: 2 },
+          { label: 'SENSOR_03 (Manyata Gate 4)', data: [], borderColor: '#ef4444', backgroundColor: '#ef4444', tension: 0.3, borderWidth: 2, pointRadius: 2 }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: {
+          x: { ticks: { color: '#94a3b8', maxTicksLimit: 6 }, grid: { color: '#1e293b' } },
+          y: { beginAtZero: true, suggestedMax: 2.0, ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' }, title: { display: true, text: 'Depth (m)', color: '#94a3b8' } }
+        },
+        plugins: {
+          legend: { labels: { color: '#f8fafc', boxWidth: 12, font: { size: 11 } } }
+        }
+      }
+    });
 
     async function updateStatus() {
       try {
@@ -103,6 +158,19 @@
             markers[id].setPopupContent(`<b>${id}: ${s.name}</b><br>Level: ${s.alert_level}<br>Depth: ${s.water_depth_m.toFixed(2)} m<br>Lead Time: ${s.lead_time}`);
           }
         }
+
+        // Update Live Hydrograph Chart
+        const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        hydroChart.data.labels.push(timeLabel);
+        hydroChart.data.datasets[0].data.push(data["SENSOR_01"] ? data["SENSOR_01"].water_depth_m : 0);
+        hydroChart.data.datasets[1].data.push(data["SENSOR_02"] ? data["SENSOR_02"].water_depth_m : 0);
+        hydroChart.data.datasets[2].data.push(data["SENSOR_03"] ? data["SENSOR_03"].water_depth_m : 0);
+
+        if (hydroChart.data.labels.length > 15) {
+          hydroChart.data.labels.shift();
+          hydroChart.data.datasets.forEach(ds => ds.data.shift());
+        }
+        hydroChart.update();
 
         const badge = document.getElementById("system-badge");
         badge.innerText = highestAlert === "GREEN" ? "SYSTEM NORMAL" : `${highestAlert} SURGE ACTIVE`;
