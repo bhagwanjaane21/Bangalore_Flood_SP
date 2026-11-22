@@ -2,10 +2,11 @@
 > **An End-to-End IoT, GIS & ML-Powered Urban Flash Flood Early Warning Platform**  
 > **Target Corridor:** Rachenahalli Lake – Dasarahalli – Manyata Tech Park – Nagavara Lake (Primary Drain 127, North Bengaluru)
 
-**Backend startup (Phase 1):** See [backend setup and tests](02_backend/README.md).
+**Backend startup and demos:** See [backend setup and tests](02_backend/README.md).
 From the repository root, run `python 02_backend/run.py` after installing the
 backend requirements. Startup creates an empty `02_backend/data/telemetry.db`
 when needed; the old committed sample database is no longer required.
+Repeatable review demonstrations are documented in [simulation scenarios](02_backend/SIMULATIONS.md).
 
 ---
 

@@ -1,8 +1,22 @@
-# Prototype API contract — Phase 3
+# Prototype API contract — Phase 5
 
 Run `python 02_backend/run.py`. Interactive schemas are available at `/docs`.
 All URLs below are relative to the backend origin. This prototype has no
 authentication; source labels are client declarations, not verified identities.
+
+Phase 4 adds a CLI runner using the existing APIs, with no new remote control or
+reset routes. An owned demo backend adds an optional `simulation_run_id` UUID to
+its healthy `/health` response, configured by `STREAM_SIMULATION_RUN_ID`. The
+runner uses it to verify process ownership before posting. Normal backend health
+responses include the same readiness fields. See [simulation setup](SIMULATIONS.md).
+
+Phase 5 adds a persistent `event_stream_id` UUID to every healthy `/health`
+response. It identifies the database's event history, survives restart/migration,
+and changes with a fresh database. Consumers must pair event IDs/cursors with
+this UUID; event 1 in two simulation databases is not the same transition.
+Missing or corrupt identity metadata fails readiness. Notification delivery runs
+as a separate process; ingestion never waits for Telegram. See
+[notifications and dry-run testing](NOTIFICATIONS.md).
 
 ## Telemetry ingestion
 
@@ -79,6 +93,12 @@ do not recalculate hazard state or create alert events. A duplicate submission
 returns that observation's original decision; use the status API for the latest
 node decision. Legacy history may have null decision fields where no decision
 was recorded; migration does not invent a full historical event log.
+
+Phase 5 adds `alert_event_id` on **current status only**: the latest persisted
+transition for this node, or null when none exists. Heartbeats at the same level
+retain that transition ID. A dispatcher uses it to suppress an older alert even
+if the sensor has since recovered and returned to the same colour. It is scoped
+to `event_stream_id`, like IDs from `/api/alerts`.
 
 `GET /api/sensors/history/{node_id}?limit=120` returns a list of the latest N
 persisted readings, oldest first. Allowed limits are 1–1000; bad limits receive

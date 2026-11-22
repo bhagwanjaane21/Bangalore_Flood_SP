@@ -5,6 +5,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+from uuid import UUID
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PROJECT_DIR = BACKEND_DIR.parent
@@ -20,6 +21,7 @@ class Settings:
     recovery_samples: int = 2
     recovery_margin_m: float = 0.05
     trend_min_span_seconds: float = 10
+    simulation_run_id: str | None = None
     cors_origins: tuple[str, ...] = (
         "http://localhost:5500",
         "http://127.0.0.1:5500",
@@ -38,6 +40,11 @@ class Settings:
             raise ValueError("STREAM_RECOVERY_MARGIN_M must be finite and in [0, 0.3)")
         if not math.isfinite(self.trend_min_span_seconds) or self.trend_min_span_seconds <= 0:
             raise ValueError("STREAM_TREND_MIN_SPAN_SECONDS must be finite and positive")
+        if self.simulation_run_id is not None:
+            try:
+                object.__setattr__(self, "simulation_run_id", str(UUID(self.simulation_run_id)))
+            except (ValueError, AttributeError) as exc:
+                raise ValueError("STREAM_SIMULATION_RUN_ID must be a UUID") from exc
         path = Path(self.database_path).expanduser()
         if not path.is_absolute():
             path = BACKEND_DIR / path
@@ -78,5 +85,6 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         recovery_samples=recovery_samples,
         recovery_margin_m=recovery_margin_m,
         trend_min_span_seconds=trend_min_span_seconds,
+        simulation_run_id=env.get("STREAM_SIMULATION_RUN_ID") or None,
         cors_origins=tuple(origin.strip() for origin in origins.split(",") if origin.strip()),
     )

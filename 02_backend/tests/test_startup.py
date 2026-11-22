@@ -53,9 +53,11 @@ def test_fresh_database_and_existing_routes(settings):
     application = create_app(settings)
     assert not settings.database_path.exists()
     with TestClient(application) as client:
-        assert client.get("/health").json() == {
+        health = client.get("/health").json()
+        assert {key: health[key] for key in ("status", "database", "mode")} == {
             "status": "ok", "database": "ready", "mode": "prototype",
         }
+        assert len(health["event_stream_id"]) == 36
         assert client.get("/docs").status_code == 200
         assert "/api/telemetry" in client.get("/openapi.json").json()["paths"]
         assert "STREAM" in client.get("/").text

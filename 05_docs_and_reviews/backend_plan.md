@@ -12,7 +12,7 @@ alerts, and a reproducible software demonstration. Physical hardware is not
 required for this review. Frontend implementation stays with the frontend team.
 
 Finish a reliable backend prototype before adding optional features. Retain
-the current repository layout. Checkpoints 0, 1, 2 and 3 are complete locally; later
+the current repository layout. Checkpoints 0, 1, 2, 3, 4 and 5 are complete locally; later
 checkpoints remain the proposed implementation sequence.
 
 ## Checkpoints and completion evidence
@@ -160,8 +160,8 @@ integration branch preserves that head for anyone who already fetched it.
 | 1 | Completed locally | Package imports, central runtime settings, working-directory-independent launcher and paths, lifespan DB initialization, readiness checks, generated-data ignores, sample DB untracked, and setup instructions. All 20 tests passed on Python 3.13.6, including four real server launches (root/backend/unrelated directory/clean source copy), persistence, API compatibility and storage failure cases. |
 | 2 | Completed locally | Validated finite telemetry, UTC observation/receipt timestamps, source labels, calculated signed rates, concurrent idempotent retries, explicit 409 conflicts, non-destructive legacy migration, bounded chronological history and validated spatial APIs. All 62 backend tests passed before frontend integration. See `02_backend/API.md`. |
 | 3 | Completed locally | One persisted alert engine, signed trend evidence, recovery deadband/persistence, explicit quality/freshness metadata and bounded/cursor-based event history. Telemetry, state and events share one transaction; migration/restart do not replay events. See Phase 3 verification below. |
-| 4 | Not started | — |
-| 5 | Not started | — |
+| 4 | Completed locally | Six finite scenarios, isolated managed demo servers/databases, explicit simulated clocks and real freshness waits, duplicate-safe HTTP retries, owned-process checks, cancellation, persisted plans/reports and exact expected-state/event/history verification. See Phase 4 verification below. |
+| 5 | Completed locally (dry-run + mocked delivery) | Separate durable notification ledger, atomic event cursor, stream identity, claim/restart recovery, bounded retries, 429 cooldown, explicit uncertain delivery, freshness/source guards and dry-run default. 65 notification cases passed; no real Telegram messages sent. Live demo-destination acceptance remains unverified. See Phase 5 verification below. |
 | 6 | In progress | Original frontend PRs #1 and #2 and supporting fixes PR #4 are merged into main. Backend/real-server API and dashboard behavior checks pass. Visual/LAN checks and scenario rehearsal remain pending. |
 
 ### Checkpoint 1 verification — 22 November 2026
@@ -211,3 +211,60 @@ integration branch preserves that head for anyone who already fetched it.
 - Result: **111 Python tests and 5 dashboard behavior tests passed**. This includes
   47 Phase 3 cases and all earlier backend/real-server frontend integration tests.
 - Notification delivery remains Phase 5. The frontend is unchanged by this checkpoint.
+
+### Checkpoint 4 — 22 November 2026
+
+- Started from merged Phase 3 main `049ad97` on `backend/vernit`.
+- Added `simulate.py` and `simulation/` with normal, sustained-rise,
+  progressing-surge, recovery, isolated-spike and sensor-dropout profiles.
+- Managed runs use fresh UUID directories/databases and a process-identity health
+  handshake. They ignore inherited backend overrides and never reset existing data.
+  External playback is explicit and requires an empty prototype backend.
+- Playback speed affects wall time, not observation intervals or computed rates.
+  Dropout uses real elapsed time and heartbeats for the remaining nodes.
+- Replaced the old endless sine-wave and import-time posting scripts with
+  guarded compatibility entry points for the finite progressing-surge profile.
+- Reports verify levels, decision kinds, freshness, ordered events and persisted
+  observation values. Failed/cancelled runs retain partial evidence and stop owned
+  processes. No external notifications or frontend implementation changes were made.
+- Setup, demo commands, policy assumptions and cancellation semantics are in
+  `02_backend/SIMULATIONS.md`. The next backend checkpoint remains notification delivery.
+- Final verification: **144 Python tests and 5 dashboard behavior tests passed**,
+  including 33 simulation cases. Commands:
+  `python -B -m pytest 02_backend/tests 03_dashboard/tests -q -p no:cacheprovider`
+  and `node --test 03_dashboard/tests/dashboard.test.cjs`.
+
+### Checkpoint 5 — 22 November 2026
+
+- Started from merged Phase 4 main `8f3e6d5` on `backend/vernit`.
+- Added `02_backend/notify.py` and the `notifications/` worker package. The legacy
+  `04_notifications/telegram_bot.py` delegates to it, with no hardcoded token,
+  LAN address or import-time polling. Frontend and spatial sources are unchanged.
+- `/health` now includes a database-persistent `event_stream_id`. Current sensor
+  status includes the latest `alert_event_id`, preventing replay of an old episode
+  that happens to have the same colour. Existing readiness/telemetry keys remain.
+- The notification SQLite ledger atomically saves event pages and ingestion
+  cursors, then records provider attempts separately. Mode/destination namespaces
+  separate dry-run previews from live delivery and survive worker restarts.
+- Added bounded 5xx/connect-timeout backoff, persistent 429 cooldown, permanent
+  failure states and claim recovery. Lost acknowledgements/interrupted live claims
+  become uncertain and require explicit, scoped operator retry. No exactly-once
+  provider-delivery guarantee is claimed.
+- Eligibility checks skip expired, stale, superseded and unverified-source events.
+  Live simulated notifications require explicit opt-in. Recovery cards do not
+  establish road safety. Delivery never blocks telemetry ingestion.
+- Dry-run is the default even with inherited credentials. Credential values and
+  raw provider/network responses are not printed or saved. Local status and CLI
+  failures are observable. See `02_backend/NOTIFICATIONS.md` for demonstration,
+  retry/exit semantics, configuration and limitations.
+- Final verification: **209 Python tests and 5 dashboard behavior tests passed**,
+  including **65 notification cases**. Commands:
+  `python -B -m pytest 02_backend/tests 03_dashboard/tests -q -p no:cacheprovider`
+  and `node --test 03_dashboard/tests/dashboard.test.cjs`.
+- Verification includes two simultaneous claims, migration without lost alert
+  history, malformed/provider failure responses, and a real local-server CLI
+  dry-run followed by restart without duplicate preview. External sends are
+  prohibited in notification tests. **No real Telegram delivery was attempted**;
+  an explicitly selected live demo destination remains a later integration check.
+- This checkpoint is committed/published on `backend/vernit`; merging into `main`
+  and any teammate frontend changes remain separate work.
