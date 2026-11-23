@@ -243,6 +243,25 @@ def test_phase4_database_migration_preserves_history_and_corrupt_identity_fails_
         assert client.get("/health").status_code == 503
 
 
+def test_missing_identity_on_restart_preserves_original_notification_namespace(tmp_path):
+    settings = Settings(database_path=tmp_path / "store.db")
+    with TestClient(create_app(settings)) as client:
+        post(client)
+        saved_id = client.get("/health").json()["event_stream_id"]
+        with sqlite3.connect(settings.database_path) as db:
+            db.execute("DELETE FROM backend_metadata WHERE key = 'event_stream_id'")
+        assert client.get("/health").status_code == 503
+    with pytest.raises(sqlite3.DatabaseError, match="stream identity"):
+        with TestClient(create_app(settings)):
+            pytest.fail("Starting with a new identity would replay previously dispatched events")
+    with sqlite3.connect(settings.database_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM backend_metadata").fetchone()[0] == 0
+        db.execute("INSERT INTO backend_metadata VALUES ('event_stream_id', ?)", (saved_id,))
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/health").json()["event_stream_id"] == saved_id
+        assert len(client.get("/api/alerts").json()) == 1
+
+
 def test_card_is_bounded_plain_text_and_preserves_reference(setup):
     post(setup.client)
     event = setup.backend.get("/api/alerts")[0]
@@ -360,6 +379,18 @@ def test_malformed_api_batch_fails_before_cursor_advances(setup, monkeypatch, ba
     with pytest.raises(BackendUnavailable, match="invalid_event_batch"):
         setup.worker.cycle()
     assert setup.outbox.rows() == []
+
+
+@pytest.mark.parametrize("change", [{"created_at": None}, {"created_at": 123}, {"event_id": 2**63}])
+def test_invalid_event_fields_defer_cycle_without_checkpointing(setup, monkeypatch, change):
+    post(setup.client, 1.7)
+    event = setup.client.get("/api/alerts").json()[0]
+    with monkeypatch.context() as patch:
+        patch.setattr(setup.backend, "get", lambda *args, **kwargs: [event | change])
+        with pytest.raises(BackendUnavailable, match="invalid_event_batch"):
+            setup.worker.cycle()
+    assert setup.outbox.rows() == []
+    assert setup.worker.cycle()["counts"] == {"dry_run": 1}
 
 
 @pytest.mark.parametrize("code,body,expected,detail", [

@@ -23,8 +23,11 @@ data without generating additional readings. Those readings become stale normall
 after the freshness timeout. Without `--keep-server`, the owned server closes as
 soon as playback/verification finishes; stored data and reports remain available.
 
-No frontend change is needed. The existing map, hydrograph and upcoming alert
-timeline consume the same telemetry, status, history and alert APIs.
+Open **Review replay** on the dashboard to inspect saved checkpoints and
+notification previews while a managed run is recording or after it finishes.
+An isolated dry-run worker processes each verified step. The simulator compares
+its preview IDs with the backend's persisted transitions before marking the run
+complete. The dashboard and replay both work with local assets after setup.
 
 ## Profiles and expected results
 
@@ -76,6 +79,7 @@ Each managed run gets a new UUID folder under:
     backend.log     # Owned server output
     plan.json       # Scenario definition and expected transitions
     report.json     # Results, checkpoints, observations and event history
+    review.db       # Recorded station snapshots and this run's dry-run notification ledger
 ```
 
 Generated runs are gitignored. Replaying creates a new folder/database rather
@@ -88,9 +92,21 @@ The runner verifies that UUID through `/health` before posting. An occupied port
 or a different backend identity is a failure, not an invitation to write to it.
 Only the process started by this run is stopped during cleanup.
 
-To inspect a completed run later, choose its retained database explicitly using
-`STREAM_DB_PATH` and the normal `run.py` launcher. Its readings retain their
-original receipt times, so they will normally be stale on later inspection.
+To reopen a completed run, use the following in a new PowerShell terminal.
+Replace `<run-id>` with the UUID printed by the simulation. The regular dashboard
+uses the original receipt times, so old readings usually show as stale. Open
+`/review` for the station evidence as it was recorded during playback.
+
+```powershell
+$runId = '<run-id>'
+$env:STREAM_DB_PATH = (Resolve-Path "02_backend/data/simulation_runs/$runId/telemetry.db").Path
+$env:STREAM_SIMULATION_RUN_ID = $runId
+python 02_backend/run.py
+```
+
+The two overrides apply to this terminal. Close it or remove both environment
+variables before using the ordinary monitoring database. Historical runs
+created before the replay feature retain their original JSON reports.
 
 ## External server mode
 
@@ -120,7 +136,9 @@ It must include an offset or `Z`.
 
 Successful runs print `COMPLETED` and save `status: completed, verified: true`.
 Checks include each expected state/kind, final freshness, exact event order,
-distinct observation IDs, persisted counts and persisted payload values.
+distinct observation IDs, persisted counts and persisted payload values. Before
+recording a checkpoint, each station's status is matched to the actual latest
+submitted reading ID, observation time, depth, station, battery and source.
 Failures print `FAILED`, return nonzero, and retain a failed report and partial data.
 They are never silently presented as completed demonstrations.
 
@@ -128,6 +146,10 @@ Ctrl+C during playback stops new submissions, records cancellation, stops an
 owned server and exits with code 130. Stopping `--keep-server` after a completed
 playback keeps the report marked completed and exits normally. Remote stop or
 database-reset APIs are not introduced in this checkpoint.
+
+If the preview server exits unexpectedly after verification, the command returns
+nonzero and records `preview_exit_code` in the report. The completed replay and
+its verification result are preserved for reopening.
 
 The old `continuous_sim.py` and `mock_nodes.py` entry points now delegate to a
 finite `progressing-surge` run. Importing them has no runtime side effects.

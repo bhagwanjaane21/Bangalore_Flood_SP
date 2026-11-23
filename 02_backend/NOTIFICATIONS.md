@@ -62,6 +62,9 @@ is represented by a chat-ID hash, not a token or a raw chat ID. Rotating a bot
 token for the same destination does not replay its delivered events.
 Database backups/clones retain their stream identity and are the same logical
 history; use a fresh simulation database for a separate run.
+An existing metadata table with a missing or damaged stream identity fails
+readiness and startup. Restore the original database identity from a backup to
+continue using its delivery history.
 
 Each poll reads `/api/alerts?after_id=...&limit=...`. All events in the page
 and the new ingestion cursor commit in **one SQLite transaction**. Delivery

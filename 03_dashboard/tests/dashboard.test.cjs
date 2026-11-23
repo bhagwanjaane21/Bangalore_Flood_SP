@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const script = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(match => match[1]).join('\n');
+const script = fs.readFileSync(path.join(__dirname, '..', 'assets', 'dashboard.js'), 'utf8');
 const ids = ['SENSOR_01', 'SENSOR_02', 'SENSOR_03'];
 
 function reading(level = 'GREEN', dataStatus = 'fresh', overrides = {}) {
@@ -31,14 +31,15 @@ function reading(level = 'GREEN', dataStatus = 'fresh', overrides = {}) {
   };
 }
 
-async function boot(history = [], config = undefined, alerts = []) {
+async function boot(history = [], config = undefined, alerts = [], options = {}) {
   const elements = new Map();
   const calls = [];
-  const state = { status: {}, history, alerts, failStatus: false, failHistory: false, failAlerts: false };
+  const state = { status: {}, history, alerts, ...options };
   class Element {
     constructor() { this.style = {}; this.dataset = {}; this.children = []; this.textContent = ''; }
-    set innerHTML(value) { this.html = value; if (!value) this.children = []; }
-    get innerHTML() { return this.html || ''; }
+    set innerHTML(value) { this.html = value; this.children = []; }
+    get innerHTML() { return [this.html || '', ...this.children.map(child => child.innerHTML || child.textContent)].join(''); }
+    addEventListener(type, listener) { this[type] = listener; }
     appendChild(child) { this.children.push(child); }
     getContext() { return {}; }
   }
@@ -46,24 +47,38 @@ async function boot(history = [], config = undefined, alerts = []) {
     getElementById(id) { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); },
     createElement() { return new Element(); }
   };
-  function layer() {
-    return { layers: new Set(), addTo(parent) { parent.layers.add(this); return this; },
-      bindPopup() { return this; }, setPopupContent() {}, setStyle() {} };
-  }
-  const map = Object.assign(layer(), {
-    setView() { return this; }, hasLayer(item) { return this.layers.has(item); }, removeLayer(item) { this.layers.delete(item); }
-  });
   const context = vm.createContext({ document, console, AbortController, STREAM_DASHBOARD_CONFIG: config,
     setTimeout() { return 1; }, clearTimeout() {},
-    L: { map: () => map, tileLayer: layer, layerGroup: layer, polyline: layer,
-      circleMarker: layer, geoJSON: layer, control: { layers: layer } },
-    Chart: class { constructor(ctx, config) { this.data = config.data; } update() {} },
+    StreamVisuals: {
+      createMap(element, select) { return { select, setCatalog(catalog) { this.catalog = catalog; },
+        setBypass() {}, setStatus(data) { this.status = data; }, setSelected(id) { this.selection = id; },
+        getRoutesVisible() { return this.status.SENSOR_03?.alert_level === 'RED' && this.status.SENSOR_03?.data_status === 'fresh'; } }; },
+      createChart(element, catalog) { return { data: { datasets: catalog.map(() => ({ data: [] })) },
+        update() {}, setStation(id) { this.selection = id; } }; },
+    },
     async fetch(url) {
       calls.push(url);
+      if (state.customFetch) {
+        const override = state.customFetch(url);
+        if (override) return override;
+      }
       let value;
       let ok = true;
-      if (url === '/api/spatial/sensors') value = { metadata: { stale_after_seconds: 90 }, features: ids.map(id => ({ properties: { Sensor_ID: id }, geometry: { coordinates: [77.6, 13] } })) };
-      else if (url === '/api/spatial/bypass') value = { metadata: { geometry_length_m: 992.2 } };
+      if (url === '/health') { value = state.health || { status: 'ok' }; ok = !state.failHealth; }
+      else if (url === '/api/review') { value = state.replay; ok = !state.failReplay; }
+      else if (url === '/api/sensors/catalog') {
+        ok = !state.failCatalog;
+        value = { expected_sensor_ids: ids, stale_after_seconds: 90, ...state.metadata,
+          stations: ids.map(id => ({ Sensor_ID: id, name: id + ' station', depth_thresholds_m: { YELLOW: .5, ORANGE: 1, RED: 1.5 } })) };
+      }
+      else if (url === '/api/spatial/sensors') {
+        ok = !state.failLocations;
+        value = { features: (state.mappedIds || ids).map(id => ({
+          properties: { Sensor_ID: id },
+          geometry: { coordinates: [77.6, 13] }
+        })) };
+      }
+      else if (url === '/api/spatial/bypass') { value = { metadata: { geometry_length_m: 992.2 } }; ok = !state.failBypass; }
       else if (url === '/api/sensors/status') { value = state.status; ok = !state.failStatus; }
       else if (url.includes('/history/')) { value = url.includes('SENSOR_01') ? state.history : []; ok = !state.failHistory; }
       else if (url.startsWith('/api/alerts')) { value = state.alerts; ok = !state.failAlerts; }
@@ -108,12 +123,12 @@ test('detour overlay responds to fresh RED and is removed on stale/error/recover
   const app = await boot();
   app.state.status = { SENSOR_03: reading('RED') };
   await app.poll();
-  assert.equal(app.read('map.hasLayer(detourLayerGroup)'), true);
+  assert.equal(app.read('map.getRoutesVisible()'), true);
   assert.match(app.element('detour-banner').textContent, /SIMULATED/);
   assert.match(app.element('detour-banner').textContent, /passability is unverified/);
   app.state.status.SENSOR_03.data_status = 'stale';
   await app.poll();
-  assert.equal(app.read('map.hasLayer(detourLayerGroup)'), false);
+  assert.equal(app.read('map.getRoutesVisible()'), false);
   assert.match(app.element('detour-banner').textContent, /current conditions are unknown/);
   app.state.failStatus = true;
   await app.poll();
@@ -123,7 +138,7 @@ test('detour overlay responds to fresh RED and is removed on stale/error/recover
   app.state.status = Object.fromEntries(ids.map(id => [id, reading()]));
   await app.poll();
   assert.equal(app.element('system-badge').textContent, 'ALL SENSORS NORMAL');
-  assert.equal(app.read('map.hasLayer(detourLayerGroup)'), false);
+  assert.equal(app.read('map.getRoutesVisible()'), false);
 });
 
 test('sensor cards display alert reasons, sustained trends, recovery progress, and stale warnings', async () => {
@@ -188,9 +203,11 @@ test('alert history panel renders transitions from GET /api/alerts and handles e
   const panel = app.element('alert-history');
   assert.equal(panel.children.length, 2);
   // Newest event first
-  assert.match(panel.children[0].innerHTML, /SENSOR_01: YELLOW → GREEN/);
+  assert.match(panel.children[0].innerHTML, /SENSOR_01 station/);
+  assert.match(panel.children[0].innerHTML, /YELLOW → GREEN/);
   assert.match(panel.children[0].innerHTML, /RECOVERY/);
-  assert.match(panel.children[1].innerHTML, /SENSOR_01: GREEN → YELLOW/);
+  assert.match(panel.children[1].innerHTML, /SENSOR_01 station/);
+  assert.match(panel.children[1].innerHTML, /GREEN → YELLOW/);
 
   app.state.failAlerts = true;
   await app.poll();
@@ -315,7 +332,7 @@ test('historical source and evidence freshness remain separate from current stal
   assert.match(event.innerHTML, /Source: simulated \(prototype\)/);
   assert.match(event.innerHTML, /Evidence when recorded: fresh/);
   assert.equal(event.dataset.eventId, '42');
-  assert.match(html, /id="alert-history-note"[^>]*>[^<]*not current conditions/);
+  assert.match(html, /id="alert-history-note"[^>]*>[^<]*evidence available at that time/);
   assert.match(app.element('sensor-cards').children[0].innerHTML, /STALE/);
   await app.poll();
   assert.equal(panel.children.length, 1);
@@ -419,4 +436,207 @@ test('fresh backend normal decisions are recognized without inventing recovery e
   await app.poll();
   assert.match(app.element('sensor-cards').children[0].innerHTML, /No active alert/);
   assert.doesNotMatch(app.element('sensor-cards').children[0].innerHTML, /Recovery confirmed|Recovery status unavailable/);
+});
+
+test('dashboard loads local assets and exposes a review replay and station filter', () => {
+  const assets = [...html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)="([^"]+)"/g)].map(match => match[1]);
+  assert.ok(assets.length >= 4);
+  for (const href of assets) {
+    assert.ok(href.startsWith('/assets/'));
+    assert.ok(fs.existsSync(path.join(__dirname, '..', href.slice(1))));
+  }
+  assert.match(html, /<a[^>]+href="\/review"/);
+  assert.match(html, /<label[^>]+for="station-filter"/);
+});
+
+test('corridor counts use only current station readings and clear on a failed status check', async () => {
+  const app = await boot();
+  app.state.status = {
+    SENSOR_01: reading('RED', 'stale', { water_depth_m: 9 }),
+    SENSOR_02: reading('GREEN', 'fresh', { water_depth_m: 0, source: 'manual' }),
+    SENSOR_03: reading('YELLOW', 'fresh', { water_depth_m: .83 }),
+    UNREGISTERED: reading('RED', 'fresh', { water_depth_m: 30 }),
+  };
+  await app.poll();
+  assert.equal(app.element('metric-coverage').textContent, '2 / 3');
+  assert.equal(app.element('metric-alerts').textContent, '1');
+  assert.equal(app.element('metric-depth').textContent, '0.83 m');
+  assert.equal(app.element('depth-station').textContent, 'SENSOR_03 station');
+  assert.equal(app.element('metric-source').textContent, 'Mixed');
+  assert.equal(app.element('system-badge').dataset.level, 'YELLOW');
+  app.state.failStatus = true;
+  await app.poll();
+  for (const metric of ['coverage', 'alerts', 'depth', 'source']) assert.equal(app.element('metric-' + metric).textContent, '—');
+  assert.ok(app.element('sensor-cards').children.every(card => card.innerHTML.includes('Latest reading unavailable')));
+  app.state.failStatus = false;
+  app.state.status = { SENSOR_02: reading('GREEN', 'fresh', { water_depth_m: 0 }) };
+  await app.poll();
+  assert.equal(app.element('metric-depth').textContent, '0.00 m');
+  assert.equal(app.element('metric-alerts').textContent, '0');
+  assert.equal(app.element('metric-source').textContent, 'Simulated');
+});
+
+test('malformed fresh data never produces an all-normal report or recommended action', async () => {
+  const app = await boot();
+  for (const bad of [{ alert_level: 'constructor' }, { water_depth_m: -1 }, { water_depth_m: '1.8' }, { data_status: null }]) {
+    app.state.status = Object.fromEntries(ids.map(id => [id, reading('RED', 'fresh', bad)]));
+    await app.poll();
+    assert.equal(app.element('metric-coverage').textContent, '0 / 3');
+    assert.equal(app.element('system-badge').textContent, 'STALE / UNKNOWN DATA');
+    assert.ok(app.element('sensor-cards').children.every(card => card.className === 'card UNKNOWN' && !card.innerHTML.includes('Action:')));
+    assert.equal(app.read('map.getRoutesVisible()'), false);
+  }
+});
+
+test('catalog and bypass recover automatically and stationary detail nodes stay open across polls', async () => {
+  const app = await boot([], undefined, [], { failCatalog: true, failBypass: true, metadata: { expected_sensor_ids: ids }, mappedIds: [ids[0], ids[2]] });
+  assert.equal(app.element('system-badge').textContent, 'SENSOR CATALOG UNAVAILABLE');
+  app.state.failCatalog = false;
+  app.state.status = Object.fromEntries(ids.map(id => [id, reading()]));
+  await app.poll();
+  assert.match(app.element('spatial-status').textContent, /mapping unavailable/i);
+  assert.equal(app.element('metric-coverage').textContent, '3 / 3');
+  assert.equal(app.read('map.catalog.length'), 2);
+  const first = app.element('sensor-cards').children[0];
+  assert.match(first.innerHTML, /Depth thresholds: yellow 0.50 m/);
+  const details = first.children[1];
+  details.open = true;
+  app.state.failBypass = false;
+  await app.poll();
+  assert.match(app.element('spatial-status').textContent, /0.99 km/);
+  assert.equal(app.element('sensor-cards').children[0].children[1], details);
+  assert.equal(details.open, true);
+  assert.equal(app.element('station-filter').children.length, 3);
+});
+
+test('station filter uses its own server history, focuses visuals, and keeps corridor totals', async () => {
+  const alerts = ids.map((id, index) => ({ node_id: id, event_id: index + 1, previous_level: 'GREEN', new_level: 'YELLOW' }));
+  const app = await boot([], undefined, alerts, { status: Object.fromEntries(ids.map(id => [id, reading('YELLOW')])) });
+  await app.read("map.select('SENSOR_02')");
+  assert.equal(app.element('station-filter').value, 'SENSOR_02');
+  assert.equal(app.read('map.selection'), 'SENSOR_02');
+  assert.equal(app.read('hydroChart.selection'), 'SENSOR_02');
+  assert.deepEqual(app.element('sensor-cards').children.map(card => card.hidden), [true, false, true]);
+  assert.ok(app.calls.includes('/api/alerts?limit=20&node_id=SENSOR_02'));
+  assert.equal(app.element('alert-history').children.length, 1);
+  assert.equal(app.element('alert-history').children[0].dataset.eventId, '2');
+  assert.equal(app.element('metric-alerts').textContent, '3');
+  await app.element('station-filter').change({ target: { value: '' } });
+  assert.ok(app.element('sensor-cards').children.every(card => !card.hidden));
+  assert.equal(app.element('alert-history').children.length, 3);
+});
+
+test('complete GIS failure leaves telemetry, charts and alert history available and retries mapping', async () => {
+  const app = await boot([{ reading_id: 1, observed_at: '2026-01-01T00:00:00Z', water_depth_m: .2 }], undefined,
+    [{ event_id: 3, node_id: 'SENSOR_03', previous_level: 'GREEN', new_level: 'RED' }], {
+      failLocations: true, failBypass: true, status: { SENSOR_03: reading('RED') },
+    });
+  assert.equal(app.element('system-badge').textContent, 'RED ALERT · COVERAGE INCOMPLETE');
+  assert.match(app.element('spatial-status').textContent, /locations unavailable/);
+  assert.equal(app.element('alert-history').children[0].dataset.eventId, '3');
+  assert.match(app.element('history-status').textContent, /1 dated reading/);
+  app.state.failLocations = false;
+  app.state.failBypass = false;
+  await app.poll();
+  assert.equal(app.read('map.catalog.length'), 3);
+  assert.doesNotMatch(app.element('spatial-status').textContent, /unavailable/);
+});
+
+test('an older station request cannot overwrite a newer selection', async () => {
+  const app = await boot();
+  let finish;
+  app.state.customFetch = url => url.endsWith('=SENSOR_02')
+    && new Promise(resolve => { finish = resolve; });
+  const pending = app.read("selectStation('SENSOR_02')");
+  await app.read("selectStation('SENSOR_03')");
+  finish({ ok: true, async json() { return [{ node_id: 'SENSOR_02', event_id: 20 }]; } });
+  await pending;
+  assert.equal(app.element('station-filter').value, 'SENSOR_03');
+  assert.equal(app.element('alert-history').children[0].dataset.eventId, undefined);
+  assert.match(app.element('alert-history').children[0].textContent, /No alert transitions/);
+});
+
+test('hydrographs respect server gap, source boundaries, and interrupted intervals', async () => {
+  const rows = [0, 30, 31, 32, 33, 34, 33, 35].map((seconds, index) => ({
+    reading_id: index + 1, observed_at: new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString(),
+    source: index < 2 ? 'simulated' : 'manual', water_depth_m: index === 4 ? -1 : .3,
+  }));
+  const app = await boot(rows, undefined, [], { metadata: { stale_after_seconds: 20 } });
+  const points = app.read('hydroChart.data.datasets[0].data');
+  assert.equal(points.filter(point => point.y === null).length, 4);
+  assert.equal(points.filter(point => point.y !== null).length, 6);
+  assert.match(app.read("timeLabel('2026-01-01T00:00:00Z')"), /05:30:00 IST$/);
+  assert.equal(app.read("timeLabel('bad')"), 'Unknown');
+});
+
+test('timezone-less and missing-provenance readings cannot bridge a plotted interval', async () => {
+  const row = (reading_id, observed_at, source) => ({ reading_id, observed_at, source, water_depth_m: .3 });
+  const app = await boot([
+    row(1, '2026-01-01T00:00:00Z', 'hardware'),
+    row(2, '2026-01-01T00:00:01', 'hardware'),
+    row(3, '2026-01-01T00:00:02Z', 'hardware'),
+    row(4, '2026-01-01T00:00:03Z'),
+    row(5, '2026-01-01T00:00:04Z', 'manual')
+  ]);
+  const points = app.read('hydroChart.data.datasets[0].data');
+  assert.equal(points.filter(point => point.y === null).length, 3);
+  assert.equal(points.filter(point => point.y !== null).length, 4);
+  assert.equal(app.read("timeLabel('2026-01-01T00:00:01')"), 'Unknown');
+});
+
+test('recorded-run invitation tracks the active server and recovers after a lost connection', async () => {
+  const app = await boot([], undefined, [], {
+    health: { status: 'ok', simulation_run_id: 'run-a' },
+    replay: { run_id: 'run-a', status: 'completed', scenario: 'progressing-surge', frames: [{}, {}] }
+  });
+  const invite = app.element('replay-invitation');
+  assert.equal(invite.hidden, false);
+  assert.match(app.element('replay-title').textContent, /Completed simulation · progressing surge/);
+  assert.match(app.element('replay-evidence').textContent, /2 recorded checkpoints/);
+  await app.read('refreshReplayInvitation()');
+  assert.equal(app.calls.filter(url => url === '/api/review').length, 1);
+  app.state.health.simulation_run_id = 'run-b';
+  await app.read('refreshReplayInvitation()');
+  assert.equal(invite.hidden, true);
+  app.state.replay = { run_id: 'run-b', status: 'running', scenario: 'recovery', frames: [{}] };
+  await app.read('refreshReplayInvitation()');
+  assert.equal(invite.hidden, false);
+  assert.match(app.element('replay-title').textContent, /Simulation in progress · recovery/);
+  app.state.failHealth = true;
+  await app.read('refreshReplayInvitation()');
+  assert.equal(invite.hidden, true);
+  app.state.failHealth = false;
+  await app.read('refreshReplayInvitation()');
+  assert.equal(invite.hidden, false);
+  delete app.state.health.simulation_run_id;
+  await app.read('refreshReplayInvitation()');
+  assert.equal(invite.hidden, true);
+});
+
+test('historical sources remain labelled and historical depths never display a current depth ruler', async () => {
+  const app = await boot([], undefined, [], { status: { SENSOR_03: reading('RED', 'fresh', {water_depth_m: 2}) } });
+  const card = app.element('sensor-cards').children[2];
+  assert.match(card.innerHTML, /--measured:100\.00%/);
+  assert.match(card.innerHTML, /Critical depth 1\.50 m/);
+  assert.match(app.element('assessment-note').textContent, /Highest warning at SENSOR_03 station/);
+  app.state.status.SENSOR_03.data_status = 'stale';
+  await app.poll();
+  assert.doesNotMatch(card.innerHTML, /depth-scale/);
+  assert.equal(app.element('metric-depth').textContent, '—');
+  assert.equal(app.element('metric-source').textContent, 'Simulated');
+  assert.equal(app.element('source-caption').textContent, 'Last recorded observations');
+  assert.match(app.element('assessment-note').textContent, /Fresh readings are needed/);
+});
+
+test('unchanged transitions keep their DOM rows and a changed payload at the same ID refreshes', async () => {
+  const alert = {event_id: 1, node_id: 'SENSOR_01', previous_level: 'GREEN', new_level: 'YELLOW'};
+  const app = await boot([], undefined, [alert]);
+  const panel = app.element('alert-history');
+  const before = panel.children[0];
+  await app.poll();
+  assert.equal(panel.children[0], before);
+  alert.new_level = 'ORANGE';
+  await app.poll();
+  assert.notEqual(panel.children[0], before);
+  assert.match(panel.children[0].innerHTML, /GREEN → ORANGE/);
 });

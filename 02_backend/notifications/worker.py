@@ -53,6 +53,8 @@ def scope_for(stream_id, *, live=False, chat_id=""):
 
 
 def timestamp(value):
+    if not isinstance(value, str):
+        raise ValueError("Expected timestamp text")
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("Missing timestamp timezone")
@@ -111,8 +113,8 @@ def validate_events(events, cursor, batch_size):
     for event in events:
         try:
             if (not isinstance(event, dict) or type(event["event_id"]) is not int
-                    or event["event_id"] <= previous or type(event["reading_id"]) is not int
-                    or event["reading_id"] < 1 or not isinstance(event["node_id"], str)
+                    or not previous < event["event_id"] <= 2**63 - 1 or type(event["reading_id"]) is not int
+                    or not 1 <= event["reading_id"] <= 2**63 - 1 or not isinstance(event["node_id"], str)
                     or not isinstance(event["reason"], str)
                     or event["new_level"] not in ("GREEN", "YELLOW", "ORANGE", "RED")
                     or event["previous_level"] not in ("GREEN", "YELLOW", "ORANGE", "RED")
@@ -188,9 +190,6 @@ class Worker:
             self.outbox.finish(scope, item, status, detail, due_at=self.clock() + delay,
                                message_id=outcome.message_id, cooldown=outcome.detail == "rate_limited")
             self.emit(f"event={item['event_id']} status={status} detail={detail}")
-        counts = {}
-        for row in self.outbox.rows(scope):
-            counts[row["status"]] = counts.get(row["status"], 0) + 1
         return {"stream_id": stream_id, "mode": "live" if self.live else "dry-run",
-                "cursor": self.outbox.cursor(scope), "counts": counts,
+                "cursor": self.outbox.cursor(scope), "counts": self.outbox.counts(scope),
                 "more_events": len(events) == self.batch_size}

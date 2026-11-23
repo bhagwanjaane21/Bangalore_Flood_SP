@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102f35">
+  <link rel="icon" type="image/svg+xml" href="/assets/stream-mark.svg">
+  <title>Review replay | STREAM</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <link rel="stylesheet" href="/assets/review.css">
+  <script src="/assets/review.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#replay">Skip to replay</a>
+  <header class="masthead"><div class="masthead-inner">
+    <a class="brand" href="/" aria-label="STREAM corridor overview"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>STREAM</a>
+    <nav aria-label="Review navigation"><a href="/">← Corridor overview</a></nav>
+  </div></header>
+  <main id="replay" tabindex="-1">
+    <div class="location"><span class="location-dot" aria-hidden="true"></span>Bengaluru / Simulation review</div>
+    <div class="overview-heading"><div><h1>Review replay</h1><p class="subtitle">Follow the water levels and alert decisions from one recorded simulation.</p></div></div>
+    <p id="connection-note" role="status">Looking for a recorded run…</p>
+    <noscript><p class="notice">Enable JavaScript to explore the recorded checkpoints.</p></noscript>
+    <section id="start-guide" class="panel review-block" hidden>
+      <h2>Start a local rehearsal</h2>
+      <p>Run this command from the project folder, then open the review link printed in the terminal.</p>
+      <pre><code>python 02_backend/simulate.py progressing-surge --speed 5 --keep-server</code></pre>
+      <p>Three virtual stations report rising water. The simulator saves each checked step and its notification previews.</p>
+    </section>
+    <section id="run" hidden>
+      <div class="run-summary panel">
+        <div><span class="eyeline">Recorded scenario</span><h2 id="scenario-name"></h2><p id="scenario-description"></p></div>
+        <dl><div><dt>Run status</dt><dd id="run-state"></dd></div><div><dt>Steps recorded</dt><dd id="frame-count"></dd></div><div><dt>Dry-run previews</dt><dd id="preview-count"></dd></div></dl>
+      </div>
+      <section id="player" hidden aria-label="Recorded checkpoints">
+        <aside class="checkpoint-menu panel" aria-labelledby="steps-heading">
+          <h2 id="steps-heading">Checkpoints</h2>
+          <ol id="checkpoint-list" aria-labelledby="steps-heading"></ol>
+          <label class="compact-steps" for="steps">Recorded step <select id="steps"></select></label>
+        </aside>
+        <div class="checkpoint-evidence">
+          <section class="panel checkpoint-panel" aria-labelledby="frame-title">
+            <div class="frame-heading">
+              <div class="frame-meta"><span id="frame-position"></span><span id="frame-clock"></span></div>
+              <h2 id="frame-title" aria-live="polite" tabindex="-1"></h2>
+              <p id="frame-summary"></p>
+              <div class="step-buttons"><button type="button" id="previous">Previous</button><button type="button" id="next">Next</button><button type="button" id="latest">Latest step</button></div>
+            </div>
+            <div class="evidence-body">
+              <h3>Station readings at this step</h3>
+              <div id="recorded-stations"></div>
+            </div>
+          </section>
+          <div class="section-heading"><h2>Notification previews</h2><span>Local dry run</span></div>
+          <div id="recorded-previews" class="panel review-block"></div>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

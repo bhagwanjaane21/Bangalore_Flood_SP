@@ -1,433 +1,83 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>STREAM Operations Dashboard | Bengaluru Flood Early Warning</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #0f172a; color: #f8fafc; }
-    header { padding: 12px 24px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
-    h1 { margin: 0; font-size: 1.15rem; font-weight: 700; color: #38bdf8; }
-    .badge { padding: 5px 14px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; background: #64748b; color: white; transition: all 0.3s; }
-    #detour-banner { display: none; background: #991b1b; color: #fef2f2; padding: 10px 24px; font-size: 0.88rem; font-weight: 600; border-bottom: 1px solid #ef4444; text-align: center; letter-spacing: 0.02em; }
-    header, #detour-banner { flex-shrink: 0; }
-    #container { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
-    #map { flex: 1; min-width: 0; height: 100%; }
-    #sidebar { flex: 0 0 440px; max-width: 45%; min-width: 0; background: #1e293b; border-left: 1px solid #334155; padding: 16px 16px 40px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; overflow-wrap: anywhere; }
-    #sidebar > * { flex-shrink: 0; }
-    .card { background: #0f172a; border-radius: 8px; padding: 14px; border: 1px solid #334155; border-left: 6px solid #64748b; transition: all 0.3s ease; margin-bottom: 10px; }
-    .card:last-child { margin-bottom: 0; }
-    .card.RED { border-left-color: #ef4444; }
-    .card.ORANGE { border-left-color: #f97316; }
-    .card.YELLOW { border-left-color: #eab308; }
-    .card.GREEN { border-left-color: #22c55e; }
-    .card-title { font-weight: 600; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
-    .lead-time { color: #38bdf8; font-weight: 700; font-size: 0.85rem; margin-bottom: 4px; }
-    .depth-stat { font-size: 1.25rem; font-weight: 800; white-space: nowrap; margin-left: 8px; }
-    .chart-box { background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155; flex-shrink: 0; }
-    .status-note { font-size: 0.78rem; line-height: 1.5; color: #cbd5e1; margin: 0; }
-    .stale-warning { margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: rgba(234, 179, 8, 0.14); border: 1px solid rgba(234, 179, 8, 0.45); color: #fde047; font-size: 0.76rem; line-height: 1.4; }
-    .explanation-box { margin-top: 8px; padding-top: 8px; border-top: 1px solid #1e293b; display: flex; flex-direction: column; gap: 3px; }
-    .reason-text { font-size: 0.78rem; color: #e2e8f0; font-weight: 500; }
-    .trend-text { font-size: 0.76rem; color: #7dd3fc; }
-    .recovery-text { font-size: 0.76rem; color: #86efac; }
-    .history-panel { background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 8px; min-height: 72px; max-height: 240px; overflow-y: auto; flex-shrink: 0; }
-    .alert-event { padding: 8px 10px; border-radius: 6px; background: #1e293b; border-left: 4px solid #64748b; font-size: 0.78rem; line-height: 1.4; }
-    .alert-event.RED { border-left-color: #ef4444; }
-    .alert-event.ORANGE { border-left-color: #f97316; }
-    .alert-event.YELLOW { border-left-color: #eab308; }
-    .alert-event.GREEN { border-left-color: #22c55e; }
-    .event-header { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; font-weight: 700; color: #f8fafc; margin-bottom: 2px; }
-    .chart-box { height: 230px; }
-    .card.UNKNOWN { border-left-color: #64748b; }
-    .card-title { gap: 6px 12px; flex-wrap: wrap; }
-    .card-title > span:first-child { flex: 1 1 160px; min-width: 0; }
-    .quality-notes { margin: 4px 0; padding-left: 18px; }
-    @media (max-width: 800px) {
-      body { height: auto; min-height: 100vh; }
-      header { gap: 12px; flex-wrap: wrap; padding: 12px 16px; overflow-wrap: anywhere; }
-      #container { flex-direction: column; overflow: visible; }
-      #map { flex: none; height: 45vh; min-height: 300px; }
-      #sidebar { flex: none; max-width: none; width: 100%; border-left: 0; border-top: 1px solid #334155; padding: 16px 12px 32px; overflow-y: visible; }
-    }
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102f35">
+  <link rel="icon" type="image/svg+xml" href="/assets/stream-mark.svg">
+  <title>STREAM | Bengaluru flood monitoring</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <link rel="stylesheet" href="/assets/visuals.css">
+  <script src="/assets/visuals.js" defer></script>
+  <script src="/assets/dashboard.js" defer></script>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>STREAM Flood Telemetry & Early Alert Monitor</h1>
-      <small style="color: #94a3b8;">Rachenahalli – Manyata corridor · Proposed sensor locations · Prototype</small>
+  <a class="skip" href="#overview">Skip to overview</a>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <a class="brand" href="#overview" aria-label="STREAM corridor overview">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>STREAM
+      </a>
+      <nav aria-label="Dashboard navigation">
+        <a href="#stations">Stations</a><a href="#alerts">Alert log</a><a class="replay-link" href="/review">Review replay <span aria-hidden="true">↗</span></a>
+      </nav>
     </div>
-    <div id="system-badge" class="badge">CONNECTING</div>
   </header>
-
-  <div id="detour-banner">
-    Prototype alert. Alternative paths are illustrative; road passability is unverified.
-  </div>
-
-  <div id="container">
-    <div id="map"></div>
-    <div id="sidebar">
-      <h3 style="margin: 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Telemetry Gauges</h3>
-      <div id="sensor-cards" aria-live="polite">Connecting to API...</div>
-      <p id="spatial-status" class="status-note">Loading mapped corridor...</p>
-
-      <h3 style="margin: 6px 0 0 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Live Hydrograph (Water Depth)</h3>
-      <div class="chart-box">
-        <canvas id="hydrographChart" height="190"></canvas>
+  <main id="overview" tabindex="-1">
+    <header class="corridor-hero">
+      <div>
+        <p class="hero-location">North Bengaluru <span aria-hidden="true">/</span> Flood monitoring prototype</p>
+        <h1>Corridor overview</h1>
+        <p class="corridor-stages">Rachenahalli Lake <span aria-hidden="true">→</span> Dasarahalli <span aria-hidden="true">→</span> Manyata Gate 4</p>
       </div>
-      <p id="history-status" class="status-note">Loading stored observations...</p>
-
-      <h3 style="margin: 6px 0 0 0; font-size: 0.95rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Alert History</h3>
-      <p id="alert-history-note" class="status-note">Historical transitions: freshness describes evidence when recorded, not current conditions.</p>
-      <div id="alert-history" class="history-panel" role="region" aria-label="Historical alert transitions" tabindex="0" aria-live="polite">
-        <p class="status-note">Loading alert transitions...</p>
+      <div class="assessment">
+        <span class="assessment-label">Current assessment</span>
+        <span id="system-badge" class="badge" role="status">CONNECTING</span>
+        <p id="assessment-note">Waiting for station readings.</p>
+        <small id="last-update">Waiting for the first update</small>
       </div>
+    </header>
+    <noscript><p class="notice">Enable JavaScript to view readings, maps and alert changes.</p></noscript>
+    <section class="metrics" aria-label="Corridor-wide readings">
+      <div><span>Fresh stations</span><strong id="metric-coverage">—</strong><small id="coverage-caption">Awaiting station catalog</small></div>
+      <div><span>Stations in alert</span><strong id="metric-alerts">—</strong><small>Fresh yellow, orange or red</small></div>
+      <div><span>Highest fresh depth</span><strong id="metric-depth">—</strong><small id="depth-station">Awaiting readings</small></div>
+      <div><span>Reading source</span><strong id="metric-source">—</strong><small id="source-caption">Across fresh stations</small></div>
+    </section>
+    <aside id="replay-invitation" class="replay-invitation" aria-label="Recorded simulation" hidden>
+      <div><strong id="replay-title"></strong><p id="replay-evidence"></p></div>
+      <a href="/review">Open review replay <span aria-hidden="true">→</span></a>
+    </aside>
+    <p id="detour-banner" class="notice" role="status"></p>
+    <div class="monitor-heading">
+      <h2>Corridor monitor</h2>
+      <label class="station-filter" for="station-filter">Station view
+        <select id="station-filter" disabled><option value="">All stations</option></select>
+      </label>
     </div>
-  </div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
-  <script>
-    const colorMap = { GREEN: '#22c55e', YELLOW: '#eab308', ORANGE: '#f97316', RED: '#ef4444', UNKNOWN: '#64748b' };
-    const alertRank = { GREEN: 0, YELLOW: 1, ORANGE: 2, RED: 3 };
-    const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-    const timeLabel = value => value ? new Date(value).toLocaleString() : 'Unknown';
-    let catalog = [];
-    let markers = {};
-    let hydroChart = null;
-    const configuredGapSeconds = Number(globalThis.STREAM_DASHBOARD_CONFIG?.historyGapSeconds ?? 90);
-    let gapLimitMs = Number.isFinite(configuredGapSeconds) && configuredGapSeconds > 0 ? configuredGapSeconds * 1000 : 90000;
-    let map = null;
-    let sensorLayerGroup = null;
-    let bypassLayerGroup = null;
-    let detourLayerGroup = null;
-
-    async function getJson(url) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 4000);
-      try {
-        const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-        return await response.json();
-      } finally { clearTimeout(timer); }
-    }
-
-    function initializeMap() {
-      if (typeof L === 'undefined') {
-        document.getElementById('map').textContent = 'Map unavailable. Check the internet connection and reload.';
-        return;
-      }
-      map = L.map('map').setView([13.053, 77.617], 14);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      }).addTo(map);
-      sensorLayerGroup = L.layerGroup().addTo(map);
-      bypassLayerGroup = L.layerGroup().addTo(map);
-      detourLayerGroup = L.layerGroup();
-      L.control.layers(null, {
-        'Telemetry sensors': sensorLayerGroup,
-        'Illustrative bypass trace': bypassLayerGroup
-      }, { collapsed: false }).addTo(map);
-      // Teammate's alternative-path overlay. No road passability is inferred.
-      const routes = [
-        { coords: [[13.0515, 77.6195], [13.0485, 77.6183], [13.0458, 77.6168]], color: '#ef4444', text: 'Monitored vicinity near Gate 4; road inundation is not directly measured.' },
-        { coords: [[13.0485, 77.6183], [13.0472, 77.6135], [13.0455, 77.6050], [13.0442, 77.5960]], color: '#10b981', text: 'Illustrative alternative toward Hebbal / Bellary Road. Passability unverified.' },
-        { coords: [[13.0535, 77.6155], [13.0575, 77.6110], [13.0610, 77.6030], [13.0635, 77.5945]], color: '#10b981', text: 'Illustrative northern alternative. Passability unverified.' }
-      ];
-      routes.forEach(route => L.polyline(route.coords, { color: route.color, weight: 6, opacity: 0.9 })
-        .bindPopup(escapeHtml(route.text)).addTo(detourLayerGroup));
-    }
-
-    function initializeChart() {
-      if (typeof Chart === 'undefined') {
-        document.getElementById('history-status').textContent = 'Chart unavailable. Check the internet connection and reload.';
-        return;
-      }
-      hydroChart = new Chart(document.getElementById('hydrographChart').getContext('2d'), {
-        type: 'line',
-        data: { datasets: catalog.map((sensor, index) => ({
-          label: sensor.Sensor_ID,
-          data: [], borderColor: ['#38bdf8', '#eab308', '#ef4444'][index % 3],
-          borderWidth: 2, pointRadius: 2, tension: 0, spanGaps: false
-        })) },
-        options: {
-          responsive: true, maintainAspectRatio: false, animation: false,
-          scales: {
-            x: { type: 'linear', ticks: { color: '#94a3b8', maxTicksLimit: 5, callback: value => new Date(value).toLocaleTimeString() }, grid: { color: '#1e293b' } },
-            y: { beginAtZero: true, suggestedMax: 2, ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' }, title: { display: true, text: 'Depth (m)', color: '#94a3b8' } }
-          },
-          plugins: {
-            legend: { labels: { color: '#f8fafc', boxWidth: 12, font: { size: 11 } } },
-            tooltip: { callbacks: { title: items => items.length ? timeLabel(items[0].parsed.x) : '' } }
-          }
-        }
-      });
-    }
-
-    function buildHistoryPoints(rows) {
-      const seen = new Set();
-      const points = [];
-      let previous = null;
-      for (const row of rows) {
-        const x = row.observed_at ? Date.parse(row.observed_at) : NaN;
-        if (seen.has(row.reading_id) || !Number.isFinite(x) || !Number.isFinite(row.water_depth_m)) continue;
-        seen.add(row.reading_id);
-        if (previous !== null && x - previous > gapLimitMs) points.push({ x: (previous + x) / 2, y: null });
-        points.push({ x, y: row.water_depth_m });
-        previous = x;
-      }
-      return points;
-    }
-
-    function formatSustainedTrend(reading) {
-      if (!reading) return 'Unavailable';
-      const samples = Number.isFinite(reading.trend_sample_count) ? reading.trend_sample_count : 0;
-      if (Number.isFinite(reading.trend_rate_cm_min)) {
-        const sign = reading.trend_rate_cm_min > 0 ? '+' : '';
-        return `${sign}${reading.trend_rate_cm_min.toFixed(2)} cm/min (${samples} sample${samples === 1 ? '' : 's'})`;
-      }
-      return samples > 0 ? `Insufficient window (${samples} sample${samples === 1 ? '' : 's'})` : 'Insufficient samples';
-    }
-
-    function formatDataAge(seconds) {
-      if (!Number.isFinite(seconds) || seconds < 0) return 'Unknown';
-      if (seconds < 1) return 'Less than 1 s';
-      if (seconds < 60) return `${Math.floor(seconds)} s`;
-      if (seconds < 3600) return `${Math.floor(seconds / 60)} min ${Math.floor(seconds % 60)} s`;
-      return `${Math.floor(seconds / 3600)} h ${Math.floor((seconds % 3600) / 60)} min`;
-    }
-
-    function qualityNotes(flags) {
-      if (!Array.isArray(flags)) return [];
-      const labels = {
-        abrupt_change: 'Sudden depth change; check the reading. This alone does not confirm a sensor fault.',
-        insufficient_trend_samples: 'More observations are needed to establish a sustained trend.',
-        trend_span_too_short: 'Observations cover too little time to establish a sustained trend.',
-        trend_unavailable: 'A reliable trend could not be calculated.',
-        timestamp_unknown: 'Observation time is uncertain.',
-        source_changed: 'The observation source changed; the trend needs a new continuous sequence.',
-        sampling_gap: 'A gap between readings interrupts the trend evidence.',
-        reported_rate_unverified: 'The submitted rise rate has not been verified from stored observations.',
-        data_stale: 'The reading is old; current conditions cannot be established.',
-        data_unknown: 'Reading freshness is unknown; current conditions cannot be established.',
-      };
-      return [...new Set(flags.map(flag => Object.prototype.hasOwnProperty.call(labels, flag)
-        ? labels[flag] : 'Additional observation quality information is unavailable.'))];
-    }
-
-    function formatRecoveryProgress(reading) {
-      if (!reading) return 'Awaiting data';
-      if (reading.data_status !== 'fresh') {
-        return 'Current recovery status unknown; last decision is historical.';
-      }
-      // The backend reason contains its configured target and release depth.
-      // A confirmed recovery resets recovery_count, and may still leave an alert active.
-      if (reading.alert_kind === 'recovery') return 'Recovery confirmed';
-      if (reading.alert_kind === 'held') {
-        const count = reading.recovery_count;
-        const progress = Number.isInteger(count) && count > 0
-          ? ` (${count} qualifying observation${count === 1 ? '' : 's'})` : '';
-        return `Recovery being checked${progress}`;
-      }
-      if (['normal', 'depth', 'trend'].includes(reading.alert_kind)) {
-        return reading.alert_level === 'GREEN' ? 'No active alert' : 'No recovery confirmation recorded';
-      }
-      return 'Recovery status unavailable';
-    }
-
-    function setBadge(text, level = 'UNKNOWN') {
-      const badge = document.getElementById('system-badge');
-      badge.textContent = text;
-      badge.style.backgroundColor = colorMap[level];
-      badge.style.color = level === 'YELLOW' ? '#000' : '#fff';
-    }
-
-    function renderStatus(data) {
-      const container = document.getElementById('sensor-cards');
-      container.innerHTML = '';
-      let freshCount = 0;
-      let highest = 'GREEN';
-      for (const sensor of catalog) {
-        const id = sensor.Sensor_ID;
-        const reading = data[id];
-        const fresh = reading && reading.data_status === 'fresh';
-        const level = fresh && colorMap[reading.alert_level] ? reading.alert_level : 'UNKNOWN';
-        if (fresh) {
-          freshCount += 1;
-          if (alertRank[reading.alert_level] > alertRank[highest]) highest = reading.alert_level;
-        }
-        const card = document.createElement('div');
-        card.className = `card ${level}`;
-        card.dataset.sensorId = id;
-        const name = reading ? reading.name : 'Awaiting first observation';
-        const depth = reading && Number.isFinite(reading.water_depth_m) ? `${reading.water_depth_m.toFixed(2)} m` : '—';
-        const state = reading ? `${reading.data_status.toUpperCase()} · last level ${reading.alert_level}` : 'NO DATA';
-        const rate = reading && Number.isFinite(reading.rate_of_rise_cm_min) ? `${reading.rate_of_rise_cm_min.toFixed(2)} cm/min (${reading.rate_source})` : 'Unknown';
-        const staleHtml = reading && !fresh
-          ? `<div class="stale-warning">Stale/unknown warning: ${escapeHtml(reading.data_warning || 'Reading is not fresh; alert colour cannot confirm current conditions.')}</div>`
-          : '';
-        const reasonText = reading ? (reading.alert_reason || 'No recorded reason (legacy observation)') : '';
-        const notes = qualityNotes(reading && reading.quality_flags);
-        const notesHtml = notes.length
-          ? `<ul class="quality-notes status-note" aria-label="Observation quality notes">${notes.map(note => `<li>${escapeHtml(note)}</li>`).join('')}</ul>` : '';
-        const explanationHtml = reading ? `
-          <div class="explanation-box">
-            <div class="reason-text">Reason: ${escapeHtml(reasonText)}</div>
-            ${notesHtml}
-            ${fresh && reading.alert_action ? `<div class="status-note">Action: ${escapeHtml(reading.alert_action)}</div>` : ''}
-            <div class="trend-text">Sustained trend: ${escapeHtml(formatSustainedTrend(reading))}</div>
-            <div class="recovery-text">Recovery progress: ${escapeHtml(formatRecoveryProgress(reading))}</div>
-          </div>` : '';
-        card.innerHTML = `
-          <div class="card-title"><span>${escapeHtml(id)}: ${escapeHtml(name)}</span><span class="depth-stat" style="color:${colorMap[level]}">${depth}</span></div>
-          <div class="status-note">${escapeHtml(state)}</div>
-          <div class="status-note">Data age: ${escapeHtml(formatDataAge(reading && reading.data_age_seconds))}</div>
-          ${staleHtml}
-          ${reading ? `<div class="lead-time">Assumed travel window: ${escapeHtml(reading.lead_time)} (unvalidated)</div>` : ''}
-          <div class="status-note">Rise / fall: ${escapeHtml(rate)}</div>
-          <div class="status-note">Observed: ${escapeHtml(timeLabel(reading && reading.observed_at))}</div>
-          <div class="status-note">Source: ${escapeHtml(reading ? reading.source : 'unknown')}</div>
-          ${explanationHtml}`;
-        container.appendChild(card);
-        if (markers[id]) {
-          markers[id].setStyle({ fillColor: colorMap[level] });
-          markers[id].setPopupContent(`<b>${escapeHtml(id)}</b><br>${depth}<br>${escapeHtml(state)}`);
-        }
-      }
-      if (highest !== 'GREEN') setBadge(`${highest} ALERT${freshCount < catalog.length ? ' · COVERAGE INCOMPLETE' : ''}`, highest);
-      else if (!freshCount) setBadge(Object.keys(data).length ? 'STALE / UNKNOWN DATA' : 'NO SENSOR DATA');
-      else if (freshCount < catalog.length) setBadge('PARTIAL SENSOR DATA');
-      else setBadge('ALL SENSORS NORMAL', 'GREEN');
-
-      const gate = data.SENSOR_03;
-      const freshRed = gate && gate.data_status === 'fresh' && gate.alert_level === 'RED';
-      const staleRed = gate && gate.data_status !== 'fresh' && gate.alert_level === 'RED';
-      const banner = document.getElementById('detour-banner');
-      banner.style.display = freshRed || staleRed ? 'block' : 'none';
-      banner.textContent = freshRed
-        ? `${gate.source === 'simulated' ? 'SIMULATED' : 'PROTOTYPE'} RED alert at Gate 4. Alternative paths are illustrative; road passability is unverified.`
-        : 'Last Gate 4 reading was RED; current conditions are unknown. Road passability is unverified.';
-      if (map && detourLayerGroup) {
-        if (freshRed && !map.hasLayer(detourLayerGroup)) detourLayerGroup.addTo(map);
-        else if (!freshRed && map.hasLayer(detourLayerGroup)) map.removeLayer(detourLayerGroup);
-      }
-    }
-
-    function renderAlertHistory(events) {
-      const panel = document.getElementById('alert-history');
-      if (!panel) return;
-      panel.innerHTML = '';
-      if (!Array.isArray(events) || !events.length) {
-        const empty = document.createElement('p');
-        empty.className = 'status-note';
-        empty.textContent = 'No alert transitions recorded yet.';
-        panel.appendChild(empty);
-        return;
-      }
-      for (const event of [...events].reverse()) {
-        const item = document.createElement('div');
-        const level = colorMap[event.new_level] ? event.new_level : 'UNKNOWN';
-        item.className = `alert-event ${level}`;
-        item.dataset.eventId = String(event.event_id);
-        const depthText = Number.isFinite(event.water_depth_m) ? `${event.water_depth_m.toFixed(2)} m` : '—';
-        const kindLabel = event.event_type ? event.event_type.toUpperCase() : 'TRANSITION';
-        const statusAtEvent = event.data_status_at_event || 'unknown';
-        const source = event.source === 'simulated' ? 'simulated (prototype)' : (event.source || 'unknown');
-        item.innerHTML = `
-          <div class="event-header">
-            <span>${escapeHtml(event.node_id)}: ${escapeHtml(event.previous_level)} → ${escapeHtml(event.new_level)}</span>
-            <span style="color:${colorMap[level]}">${escapeHtml(kindLabel)}</span>
-          </div>
-          <div class="reason-text">${escapeHtml(event.reason || 'State transition')}</div>
-          <div class="status-note">Depth: ${escapeHtml(depthText)} · Observed: ${escapeHtml(timeLabel(event.observed_at))}</div>
-          <div class="status-note">Source: ${escapeHtml(source)} · Evidence when recorded: ${escapeHtml(statusAtEvent)}</div>`;
-        panel.appendChild(item);
-      }
-    }
-
-    async function refreshAlerts() {
-      const panel = document.getElementById('alert-history');
-      if (!panel) return;
-      try {
-        const events = await getJson('/api/alerts?limit=20');
-        renderAlertHistory(events);
-      } catch (error) {
-        panel.innerHTML = '';
-        const errNote = document.createElement('p');
-        errNote.className = 'status-note';
-        errNote.textContent = 'Alert history unavailable; retrying...';
-        panel.appendChild(errNote);
-      }
-    }
-
-    async function refreshHistory() {
-      if (!hydroChart) return;
-      const responses = await Promise.allSettled(catalog.map(sensor => getJson(`/api/sensors/history/${encodeURIComponent(sensor.Sensor_ID)}?limit=120`)));
-      let count = 0;
-      let errors = 0;
-      responses.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          const points = buildHistoryPoints(result.value);
-          hydroChart.data.datasets[index].data = points;
-          count += points.filter(point => point.y !== null).length;
-        } else {
-          hydroChart.data.datasets[index].data = [];
-          errors += 1;
-        }
-      });
-      hydroChart.update();
-      document.getElementById('history-status').textContent = errors
-        ? 'Some stored history is unavailable; affected curves are hidden.'
-        : count ? 'Stored observation times · missing intervals remain gaps · legacy times omitted.' : 'No timestamped observations yet.';
-    }
-
-    async function poll() {
-      try { renderStatus(await getJson('/api/sensors/status')); }
-      catch (error) {
-        renderStatus({});
-        setBadge('CONNECTION UNAVAILABLE');
-        document.getElementById('sensor-cards').textContent = 'Unable to read current telemetry. Retrying...';
-      }
-      await Promise.all([refreshHistory(), refreshAlerts()]);
-      setTimeout(poll, 2000); // Schedule after completion to avoid overlapping requests.
-    }
-
-    async function initialize() {
-      initializeMap();
-      try {
-        const sensors = await getJson('/api/spatial/sensors');
-        catalog = sensors.features.map(feature => ({ ...feature.properties, coordinates: feature.geometry.coordinates }));
-        if (map) for (const sensor of catalog) {
-          const [lon, lat] = sensor.coordinates;
-          markers[sensor.Sensor_ID] = L.circleMarker([lat, lon], {
-            radius: 9, fillColor: colorMap.UNKNOWN, color: '#fff', weight: 2, fillOpacity: 0.9
-          }).addTo(sensorLayerGroup).bindPopup(`${escapeHtml(sensor.Sensor_ID)}: no data`);
-        }
-        initializeChart();
-      } catch (error) {
-        setBadge('SENSOR CATALOG UNAVAILABLE');
-        document.getElementById('sensor-cards').textContent = 'Sensor locations could not be loaded. Reload to retry.';
-        return;
-      }
-      try {
-        const bypass = await getJson('/api/spatial/bypass');
-        const text = `Illustrative bypass trace: ${(bypass.metadata.geometry_length_m / 1000).toFixed(2)} km mapped. Alignment awaits GIS verification.`;
-        document.getElementById('spatial-status').textContent = text;
-        if (map) L.geoJSON(bypass, {
-          style: { color: '#00e5ff', weight: 6, opacity: 0.9, dashArray: '10, 6' },
-          onEachFeature: (feature, layer) => layer.bindPopup(escapeHtml(text))
-        }).addTo(bypassLayerGroup);
-      } catch (error) {
-        document.getElementById('spatial-status').textContent = 'Bypass mapping unavailable; sensor monitoring continues.';
-      }
-      await poll();
-    }
-
-    const initialLoad = initialize();
-  </script>
+    <div class="visual-grid">
+      <section class="panel" aria-labelledby="map-heading">
+        <div class="panel-heading"><h3 id="map-heading">Station map</h3><span>Proposed locations</span></div>
+        <div id="map"></div>
+        <p id="spatial-status" class="panel-foot">Loading mapped corridor…</p>
+      </section>
+      <section class="panel" aria-labelledby="trend-heading">
+        <div class="panel-heading"><h3 id="trend-heading">Water depth</h3><span>Metres · IST</span></div>
+        <div id="hydrographChart"></div>
+        <p id="history-status" class="panel-foot">Loading stored observations…</p>
+      </section>
+    </div>
+    <section id="stations" aria-labelledby="stations-heading">
+      <div class="section-heading"><h2 id="stations-heading">Station readings</h2><span id="station-scope">Latest observations</span></div>
+      <div id="sensor-cards">Connecting to stations…</div>
+    </section>
+    <section id="alerts" aria-labelledby="alerts-heading">
+      <div class="section-heading"><h2 id="alerts-heading">Alert log</h2><span id="alert-log-count">Latest 20 transitions</span></div>
+      <div class="panel timeline">
+        <p id="alert-history-note" class="panel-foot">Each entry records a change in alert level and the evidence available at that time. <a href="/review">Review notification previews</a></p>
+        <div id="alert-history" role="region" aria-label="Historical alert transitions" tabindex="0"><p>Loading alert transitions…</p></div>
+      </div>
+    </section>
+  </main>
 </body>
 </html>

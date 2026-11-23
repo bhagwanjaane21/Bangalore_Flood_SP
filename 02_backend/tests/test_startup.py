@@ -110,6 +110,12 @@ def test_health_detects_removed_database_without_recreating_it(settings):
         response = client.get("/health")
         assert response.status_code == 503
         assert response.json()["database"] == "unavailable"
+        for route in ("/api/sensors/status", "/api/alerts", "/api/sensors/history/SENSOR_01"):
+            response = client.get(route)
+            assert response.status_code == 503
+            assert response.json()["detail"] == "Telemetry storage is unavailable."
+        response = client.post("/api/telemetry", json={"node_id": "SENSOR_01", "water_depth_m": 0})
+        assert response.status_code == 503
         assert not settings.database_path.exists()
 
 

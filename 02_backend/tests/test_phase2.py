@@ -41,6 +41,8 @@ def observation(depth=0.5, minutes=0, **changes):
     {"rate_of_rise_cm_min": False}, {"source": "unrecognized"},
     {"node_id": ""}, {"node_id": 1}, {"observed_at": 1234},
     {"observed_at": "2026-01-01T12:00:00"}, {"observed_at": "not-a-date"},
+    {"observed_at": "1700000000"}, {"observed_at": "-1700000000.1"},
+    {"observed_at": "0001-01-01T00:00:00+02:00"}, {"observed_at": "9999-12-31T23:59:59-05:30"},
 ])
 def test_invalid_telemetry_is_rejected_without_writing(client, changes):
     response = client.post("/api/telemetry", content=json.dumps(observation(**changes)),
@@ -52,6 +54,13 @@ def test_invalid_telemetry_is_rejected_without_writing(client, changes):
 
 def test_unknown_sensor_is_rejected(client):
     assert client.post("/api/telemetry", json=observation(node_id="MISSING")).status_code == 400
+
+
+def test_binary_payload_reports_validation_error(client):
+    response = client.post("/api/telemetry", content=b"\xff", headers={"Content-Type": "application/octet-stream"})
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body"]
+    assert client.get("/api/sensors/status").json() == {}
 
 
 def test_old_payload_and_unknown_optional_values(client):
@@ -233,3 +242,36 @@ def test_missing_sensor_file_and_point_validation(client, tmp_path, monkeypatch)
     assert client.get("/api/spatial/sensors").status_code == 200
     sensor_file.write_text(json.dumps(geojson(kind="Point", coordinates=[181, 13.0])), encoding="utf-8")
     assert client.get("/api/spatial/sensors").status_code == 503
+
+
+def test_station_catalog_explains_active_depth_thresholds_before_telemetry(tmp_path):
+    settings = Settings(database_path=tmp_path / "stations.db", stale_after_seconds=12)
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/sensors/status").json() == {}
+        catalog = client.get("/api/spatial/sensors").json()
+        assert catalog["metadata"]["expected_sensor_ids"] == ["SENSOR_01", "SENSOR_02", "SENSOR_03"]
+        assert catalog["metadata"]["stale_after_seconds"] == 12
+        for feature in catalog["features"]:
+            station = feature["properties"]
+            for minute, level in enumerate(("YELLOW", "ORANGE", "RED")):
+                reading = client.post("/api/telemetry", json=observation(
+                    node_id=station["Sensor_ID"], minutes=minute, depth=station["depth_thresholds_m"][level],
+                )).json()
+                assert reading["name"] == station["name"]
+                assert reading["alert_level"] == level
+
+
+def test_station_monitoring_works_with_missing_sensor_geometries(tmp_path, monkeypatch):
+    monkeypatch.setattr(main_module, "PROJECT_DIR", tmp_path)
+    with TestClient(create_app(Settings(database_path=tmp_path / "stations.db", stale_after_seconds=25))) as client:
+        assert client.get("/api/spatial/sensors").status_code == 404
+        catalog = client.get("/api/sensors/catalog").json()
+        assert catalog["stale_after_seconds"] == 25
+        assert [row["Sensor_ID"] for row in catalog["stations"]] == catalog["expected_sensor_ids"]
+        station = catalog["stations"][1]
+        reading = client.post("/api/telemetry", json=observation(
+            node_id=station["Sensor_ID"], depth=station["depth_thresholds_m"]["RED"],
+        )).json()
+        assert reading["name"] == station["name"]
+        status = client.get("/api/sensors/status").json()[station["Sensor_ID"]]
+        assert status["alert_level"] == "RED"

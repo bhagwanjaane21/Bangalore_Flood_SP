@@ -23,9 +23,16 @@ class TelemetryReading(BaseModel):
     @field_validator("observed_at", mode="before")
     @classmethod
     def require_datetime_input(cls, value):
-        if value is not None and not isinstance(value, (str, datetime)):
-            raise ValueError("observed_at must be an ISO 8601 datetime with a timezone")
-        return value
+        if value is None or isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                if value.endswith(("Z", "z")):
+                    value = value[:-1] + "+00:00"
+                return datetime.fromisoformat(value)
+            except ValueError:
+                pass
+        raise ValueError("observed_at must be an ISO 8601 datetime with a timezone")
 
     @field_validator("observed_at")
     @classmethod
@@ -33,7 +40,10 @@ class TelemetryReading(BaseModel):
         if value is not None:
             if value.tzinfo is None or value.utcoffset() is None:
                 raise ValueError("observed_at must include a timezone offset or Z")
-            return value.astimezone(timezone.utc)
+            try:
+                return value.astimezone(timezone.utc)
+            except OverflowError as exc:
+                raise ValueError("observed_at is outside the supported UTC date range") from exc
         return value
 
 

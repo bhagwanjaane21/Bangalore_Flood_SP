@@ -191,6 +191,28 @@ def test_persisted_payload_must_match_the_scenario(local_api):
     assert runner.report["verified"] is False
 
 
+def test_same_level_with_the_wrong_snapshot_cannot_be_recorded_as_a_checked_step(local_api):
+    api, clock = local_api
+    original_status = api.status
+    captured = []
+
+    def wrong_depth():
+        snapshot = original_status()
+        if snapshot:
+            snapshot["SENSOR_02"]["water_depth_m"] = .01
+        return snapshot
+
+    api.status = wrong_depth
+    runner = ScenarioRunner(SCENARIOS["normal"], api, run_id=str(uuid4()), speed=1000,
+                            observed_start=clock.origin, monotonic=clock.monotonic,
+                            wait=clock.wait, log=lambda line: None,
+                            on_checkpoint=lambda *args: captured.append(args))
+    with pytest.raises(SimulationError, match="SENSOR_02.*latest observation"):
+        runner.run()
+    assert runner.report["verified"] is False
+    assert captured == []
+
+
 def test_lost_post_response_retries_same_observation_without_duplicate_rows(local_api):
     api, clock = local_api
     http = HttpApi("http://testserver")
@@ -234,6 +256,7 @@ def test_cli_list_and_dry_run_do_not_create_reports_or_contact_backend(tmp_path,
     ["normal", "--port", "65536"], ["normal", "--stale-after-seconds", "0"],
     ["normal", "--stale-after-seconds", "301"], ["normal", "--stale-after-seconds", "2"],
     ["normal", "--observed-start", "2026-01-01T00:00:00"],
+    ["normal", "--observed-start", "0001-01-01T00:00:00+02:00"],
     ["normal", "--base-url", "file:///tmp/demo"],
     ["normal", "--base-url", "http://localhost:8000", "--keep-server"],
 ])
@@ -338,8 +361,10 @@ def test_explicit_external_server_is_not_stopped_or_reset(tmp_path):
         server.close()
 
 
-@pytest.mark.parametrize("keep_server", [False, True])
-def test_cli_cancellation_and_keep_server_cleanup(tmp_path, monkeypatch, keep_server):
+@pytest.mark.parametrize("keep_server,preview_exit,exit_code", [
+    (False, None, 130), (True, None, 0), (True, 1, 1),
+])
+def test_cli_cancellation_and_keep_server_cleanup(tmp_path, monkeypatch, keep_server, preview_exit, exit_code):
     closed = []
 
     class FakeOwned:
@@ -352,7 +377,7 @@ def test_cli_cancellation_and_keep_server_cleanup(tmp_path, monkeypatch, keep_se
             return type("Api", (), {"base_url": "http://testserver"})()
 
         def poll(self):
-            return None
+            return preview_exit
 
         def close(self):
             closed.append(True)
@@ -371,9 +396,11 @@ def test_cli_cancellation_and_keep_server_cleanup(tmp_path, monkeypatch, keep_se
     monkeypatch.setattr(cli_module, "ScenarioRunner", FakeRunner)
     monkeypatch.setattr(cli_module.time, "sleep", lambda seconds: (_ for _ in ()).throw(KeyboardInterrupt()))
     args = ["normal", "--report-dir", str(tmp_path)] + (["--keep-server"] if keep_server else [])
-    assert main(args) == (0 if keep_server else 130)
+    assert main(args) == exit_code
     report_file = next(tmp_path.glob("*/report.json"))
     report = json.loads(report_file.read_text(encoding="utf-8"))
     assert report["status"] == ("completed" if keep_server else "cancelled")
     assert report["verified"] is keep_server
+    if preview_exit is not None:
+        assert report["preview_exit_code"] == preview_exit
     assert closed == [True]

@@ -1,4 +1,19 @@
-# Prototype API contract — Phase 5
+# STREAM prototype API contract
+
+## Managed review replay
+
+`GET /api/review` provides read-only evidence for the simulation identified by
+the server. A normal monitoring server returns `mode: monitoring` and an empty
+frame list. On a managed run the response includes its scenario, status,
+checkpoint count and ordered frames. Each frame stores the station snapshots at
+that step and the notification worker's actual dry-run previews. Reading this
+endpoint cannot advance the simulation or deliver a notification.
+
+The run can be waiting, running, completed, cancelled or failed. An older
+finished run without a replay reports `not_recorded`. A mismatched run identity
+returns 409 and an unreadable replay store returns 503. The replay UI at
+`/review` labels these readings as historical. Current freshness comes from
+`/api/sensors/status`.
 
 Run `python 02_backend/run.py`. Interactive schemas are available at `/docs`.
 All URLs below are relative to the backend origin. This prototype has no
@@ -40,7 +55,8 @@ as a separate process; ingestion never waits for Telegram. See
   Reported rise rate can be negative and must be finite.
 - `observed_at` is optional. Provided values must include an offset or `Z` and
   are normalized to UTC with microsecond precision. If omitted, the server uses
-  receipt time and labels `timestamp_source` as `server_received`.
+  receipt time and labels `timestamp_source` as `server_received`. An epoch
+  number, a numeric string, or a date outside the representable UTC range receives 422.
 - `source` is `unknown` (default), `simulated`, `hardware`, or `manual`.
 - Non-simulated observation times more than five minutes in the future are
   rejected. Simulated time can be accelerated and is separate from real receipt time.
@@ -62,10 +78,21 @@ time. They do not refresh freshness or insert rows. Conflicting data at the same
 time, or a new reading older than the node's latest observation, receives 409.
 Concurrent retries are serialized in a database transaction.
 
+If SQLite becomes unavailable, telemetry writes and reads of status, history
+and alerts return HTTP 503. A failed write rolls back the reading, decision
+and associated event together. A client can retry the same timestamped payload.
+
 ## Current status and history
 
+`GET /api/sensors/catalog` returns the configured stations, including those
+awaiting a first reading. Its `expected_sensor_ids` lists the station IDs in
+display order. Each entry in `stations` includes `Sensor_ID`, `name` and
+`depth_thresholds_m` keyed by `YELLOW`, `ORANGE` and `RED`. The top-level
+`stale_after_seconds` gives the active freshness timeout. This catalog and
+the readings APIs remain available while station map files are missing.
+
 `GET /api/sensors/status` preserves the map keyed by sensor ID. It only includes
-nodes that have readings. Compare it with the sensor GeoJSON catalog to identify
+nodes that have readings. Compare it with the station catalog to identify
 missing nodes; absence does not mean zero depth or normal conditions.
 
 Each entry retains depth, rise rate, battery, name, alert level, lead-time text
@@ -137,6 +164,9 @@ description is not the active rule. None of these levels has field calibration.
   These are explicit prototype choices, not validated prediction thresholds.
 - **Evidence breaks:** an observation or real-receipt gap exceeding the configured
   freshness interval breaks the trend window. Changing source also breaks it.
+  Hardware, manual or unknown-source observations already stale at receipt
+  break the window. Current warnings need fresh evidence on the newer side
+  of that break. The `stale_trend_evidence` flag records this condition.
   Client-reported rate alone cannot trigger a trend warning. The Phase 2 pairwise
   rate is retained for compatibility; the engine's windowed trend is separate.
 - **Recovery:** by default, two distinct fresh observations must be at least
@@ -153,8 +183,9 @@ description is not the active rule. None of these levels has field calibration.
 
 The recovery count, decision and any resulting event are committed atomically
 with the observation. Duplicate retries do not advance recovery or create events.
-Rule version is `prototype-v1`. Policy changes apply to new observations; past
-decisions retain their recorded reasons. Hardware and field validation are future work.
+Rule version `prototype-v2` excludes observations stale at receipt from new
+trend decisions. Historical decisions retain their original version and reason.
+Hardware and field validation are future work.
 
 ## Alert event history
 
@@ -180,7 +211,11 @@ freshness and track delivery separately; this checkpoint sends no Telegram messa
 ## Spatial APIs
 
 - `GET /api/spatial/sensors`: sensor Point FeatureCollection and
-  `metadata.verification_status: unverified`.
+  `metadata.verification_status: unverified`. Known points include
+  `properties.name` and `properties.depth_thresholds_m`, keyed by `YELLOW`,
+  `ORANGE` and `RED`, from the running alert rules. Collection metadata includes
+  the configured `stale_after_seconds` and all `expected_sensor_ids` for
+  comparing mapped stations with observed stations on a fresh installation.
 - `GET /api/spatial/bypass`: mapped LineString FeatureCollection, verification
   status and `metadata.geometry_length_m`, calculated from submitted coordinates.
 - `GET /01_spatial_data/manyata_bypass_1.6km.geojson`: compatibility alias for bypass.

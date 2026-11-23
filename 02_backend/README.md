@@ -1,5 +1,8 @@
 # STREAM backend: startup and telemetry APIs
 
+For a single-terminal simulation, the local dashboard, notification previews
+and a step-by-step replay, follow the [project workflow](../05_docs_and_reviews/project_workflow.md).
+
 Use Python 3.10 or newer. The checkpoint was tested with Python 3.13.6.
 Run these PowerShell commands from the repository root:
 
