@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from app.config import BACKEND_DIR
 from app.telemetry import utc_timestamp
+from .review import ReviewRecorder
 from .runner import HttpApi, ScenarioRunner, SimulationCancelled, SimulationError
 from .scenarios import SCENARIOS
 
@@ -44,8 +45,8 @@ def observation_time(value):
         if result.tzinfo is None or result.utcoffset() is None:
             raise ValueError("timezone required")
         return result.astimezone(timezone.utc)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("use an ISO 8601 timestamp with a timezone") from exc
+    except (ValueError, OverflowError) as exc:
+        raise argparse.ArgumentTypeError("use an ISO 8601 timestamp with a timezone inside the supported date range") from exc
 
 
 def base_url(value):
@@ -168,6 +169,7 @@ def main(argv=None, *, default_scenario=None):
     owned = None
     api = None
     runner = None
+    review = None
     cancel = threading.Event()
     report = {"run_id": run_id, "scenario": scenario.name, "status": "prepared", "verified": False}
     exit_code = 0
@@ -177,26 +179,37 @@ def main(argv=None, *, default_scenario=None):
         else:
             owned = OwnedBackend(folder, run_id, args.port, args.stale_after_seconds)
             api = owned.start()
+            review = ReviewRecorder(folder, run_id, scenario, api.base_url)
         print(f"Run: {run_id} | scenario: {scenario.name} | source: SIMULATED", flush=True)
         print(f"Dashboard: {api.base_url}/ | report: {folder / 'report.json'}", flush=True)
+        if review:
+            print(f"Review replay and dry-run notifications: {api.base_url}/review", flush=True)
         print(f"Playback speed: {args.speed:g}x; dropout freshness uses real elapsed time.", flush=True)
         runner = ScenarioRunner(scenario, api, run_id=run_id, speed=args.speed,
                                 stale_after_seconds=args.stale_after_seconds,
                                 observed_start=args.observed_start, cancel_event=cancel,
-                                log=lambda line: print(line, flush=True))
+                                log=lambda line: print(line, flush=True),
+                                on_checkpoint=review.capture if review else None)
         report = runner.run()
+        if review:
+            review.verify(report["events"])
+            report["dry_run_previews"] = review.document["preview_count"]
         report.update(base_url=api.base_url, backend_owned=owned is not None)
         write_json(folder / "report.json", report)
+        if review:
+            review.set_status("completed")
         print(f"COMPLETED: {len(report['reading_ids'])} readings, {len(report['events'])} alert events; all checks passed.", flush=True)
         if owned and args.keep_server:
             print("Playback finished. Dashboard remains available; Ctrl+C stops the server. Readings will become stale normally.", flush=True)
             try:
-                while owned.process.poll() is None:
+                while (preview_exit := owned.process.poll()) is None:
                     time.sleep(.25)
             except KeyboardInterrupt:
                 print("Stopped demo server. Completed report retained.", flush=True)
             else:
-                raise SimulationError("Demo server stopped unexpectedly after playback")
+                report["preview_exit_code"] = preview_exit
+                exit_code = 1
+                print(f"Preview server exited ({preview_exit}). The completed rehearsal is saved.", file=sys.stderr, flush=True)
     except (KeyboardInterrupt, SimulationCancelled):
         cancel.set()
         report = runner.report if runner else report
@@ -214,4 +227,10 @@ def main(argv=None, *, default_scenario=None):
         elif api:
             api.close()
         write_json(folder / "report.json", report)
+        if review:
+            try:
+                if review.document["status"] != report["status"]:
+                    review.set_status(report["status"])
+            finally:
+                review.client.close()
     return exit_code

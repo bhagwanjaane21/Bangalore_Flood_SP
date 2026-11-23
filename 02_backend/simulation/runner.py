@@ -67,7 +67,7 @@ class HttpApi:
 class ScenarioRunner:
     def __init__(self, scenario: Scenario, api, *, run_id: str, speed: float = 30,
                  stale_after_seconds: int = 90, observed_start: datetime | None = None,
-                 cancel_event=None, monotonic=time.monotonic, wait=None, log=print):
+                 cancel_event=None, monotonic=time.monotonic, wait=None, log=print, on_checkpoint=None):
         if not math.isfinite(speed) or speed <= 0:
             raise ValueError("Playback speed must be finite and positive")
         if not 1 <= stale_after_seconds <= 300:
@@ -83,6 +83,7 @@ class ScenarioRunner:
         self.monotonic = monotonic
         self.wait = wait if wait is not None else self.cancel_event.wait
         self.log = log
+        self.on_checkpoint = on_checkpoint
         self.reading_ids = []
         self.expected_observations = []
         self.expected_counts = Counter()
@@ -128,12 +129,18 @@ class ScenarioRunner:
         self.report["checkpoints"].append(checkpoint)
         if actual != expected_levels:
             raise SimulationError(f"{label}: expected levels {expected_levels}, got {actual}")
+        latest = {observation["node_id"]: observation for observation in self.expected_observations}
+        for node, expected in latest.items():
+            if any(snapshot[node].get(key) != value for key, value in expected.items()):
+                raise SimulationError(f"{label}: {node} status differs from the latest observation")
         for node, kind in (expected_kinds or {}).items():
             if snapshot[node]["alert_kind"] != kind:
                 raise SimulationError(f"{label}: {node} expected decision kind {kind}")
         for node, freshness in (expected_freshness or dict.fromkeys(NODES, "fresh")).items():
             if snapshot[node]["data_status"] != freshness:
                 raise SimulationError(f"{label}: {node} expected {freshness} data")
+        if self.on_checkpoint is not None:
+            self.on_checkpoint(checkpoint, snapshot)
         self.log(f"CHECKPOINT {offset:g}s: {label} | " + ", ".join(f"{node}={actual[node]}" for node in NODES))
         return snapshot
 
@@ -146,12 +153,12 @@ class ScenarioRunner:
                 raise SimulationError("Backend must be a ready STREAM prototype")
             if self.api.status() or self.api.alerts() or any(self.api.history(node) for node in NODES):
                 raise SimulationError("Backend contains existing data; use a fresh isolated demo database")
+            final = None
             for step in self.scenario.steps:
                 self._wait_until(start + step.offset_seconds / self.speed)
                 for node in NODES:
                     self._send(node, step.depths[node], step.offset_seconds)
-                self._checkpoint(step.label, step.offset_seconds, step.expected_levels, step.expected_kinds)
-            final = None
+                final = self._checkpoint(step.label, step.offset_seconds, step.expected_levels, step.expected_kinds)
             if self.scenario.dropout_node:
                 final = self._run_dropout()
             self._check_cancelled()
@@ -173,7 +180,7 @@ class ScenarioRunner:
                     raise SimulationError("Persisted reading differs from the acknowledged scenario payload")
             self.report.update(status="completed", verified=True, history_counts=counts,
                                expected_history_counts=dict(self.expected_counts),
-                               final_status=final or self.api.status())
+                               final_status=final)
         except (SimulationCancelled, KeyboardInterrupt):
             self.report.update(status="cancelled", verified=False)
             raise

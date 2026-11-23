@@ -21,6 +21,7 @@ class Outbox:
                 due_at REAL NOT NULL DEFAULT 0, claim TEXT, lease_until REAL,
                 detail TEXT, message_id INTEGER,
                 PRIMARY KEY (scope, event_id))""")
+            db.execute("CREATE INDEX IF NOT EXISTS deliveries_scope_status ON deliveries(scope, status)")
 
     @contextmanager
     def connect(self, *, create=False):
@@ -110,3 +111,9 @@ class Outbox:
             else:
                 rows = db.execute("SELECT * FROM deliveries WHERE scope=? ORDER BY event_id", (scope,)).fetchall()
             return [dict(row) for row in rows]
+
+    def counts(self, scope):
+        with self.connect() as db:
+            return dict(db.execute("""
+                SELECT status, COUNT(*) FROM deliveries WHERE scope = ? GROUP BY status
+            """, (scope,)))

@@ -1,18 +1,18 @@
 import logging
-import math
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .alert_engine import AlertPolicy, SENSOR_RULES, data_freshness
 from .config import PROJECT_DIR, Settings, load_settings
 from .database import TelemetryDatabase
+from .review import read_review
 from .spatial import load_spatial
 from .telemetry import TelemetryConflict, TelemetryReading, public_reading
 
@@ -42,16 +42,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.database = database
     application.state.settings = settings
+    dashboard_dir = PROJECT_DIR / "03_dashboard"
+    application.mount("/assets", StaticFiles(directory=dashboard_dir / "assets", check_dir=False), name="dashboard-assets")
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(request, exc):
-        # Non-finite JSON numbers must produce a usable 422, not a failure while
-        # JSON-encoding the validation error itself.
-        detail = jsonable_encoder(exc.errors(), custom_encoder={
-            float: lambda value: value if math.isfinite(value) else str(value),
-            ValueError: str,
-        })
+        # Raw input can contain binary data or non-finite numbers. Clients
+        # need the failing field and reason, never a copy of the submitted body.
+        detail = [{key: error[key] for key in ("loc", "msg", "type")} for error in exc.errors()]
         return JSONResponse(status_code=422, content={"detail": detail})
+
+    @application.exception_handler(sqlite3.Error)
+    async def storage_error_handler(request, exc):
+        logger.exception("Telemetry storage failed during %s %s", request.method, request.url.path)
+        return JSONResponse(status_code=503, content={"detail": "Telemetry storage is unavailable."})
 
     application.add_middleware(
         CORSMiddleware,
@@ -64,8 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @application.get("/health")
     def health():
         try:
-            database.check_ready()
-            stream_id = database.event_stream_id()
+            stream_id = database.check_ready()
         except (sqlite3.Error, OSError):
             logger.exception("Telemetry database readiness check failed")
             return JSONResponse(status_code=503, content={
@@ -79,10 +82,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.get("/")
     def serve_dashboard():
-        dashboard_path = PROJECT_DIR / "03_dashboard" / "index.html"
+        dashboard_path = dashboard_dir / "index.html"
         if not dashboard_path.is_file():
             raise HTTPException(status_code=404, detail="Dashboard index.html not found")
         return FileResponse(dashboard_path)
+
+    @application.get("/review", include_in_schema=False)
+    def serve_review():
+        return FileResponse(dashboard_dir / "review.html")
+
+    @application.get("/api/review")
+    def get_review():
+        return JSONResponse(read_review(settings), headers={"Cache-Control": "no-store"})
 
     @application.post("/api/telemetry")
     def ingest_telemetry(data: TelemetryReading):
@@ -121,9 +132,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if row["node_id"] in SENSOR_RULES
         }
 
+    stations = {
+        node_id: {
+            "Sensor_ID": node_id,
+            "name": rule.name,
+            "depth_thresholds_m": {"YELLOW": rule.yellow, "ORANGE": rule.orange, "RED": rule.red},
+        }
+        for node_id, rule in SENSOR_RULES.items()
+    }
+
+    @application.get("/api/sensors/catalog")
+    def get_station_catalog():
+        return {
+            "expected_sensor_ids": list(stations),
+            "stale_after_seconds": settings.stale_after_seconds,
+            "stations": list(stations.values()),
+        }
+
     @application.get("/api/spatial/sensors")
     def get_sensor_geojson():
-        return load_spatial(PROJECT_DIR / "01_spatial_data" / "sensors.geojson", "Point")
+        catalog = load_spatial(PROJECT_DIR / "01_spatial_data" / "sensors.geojson", "Point")
+        catalog["metadata"]["stale_after_seconds"] = settings.stale_after_seconds
+        catalog["metadata"]["expected_sensor_ids"] = list(stations)
+        for feature in catalog["features"]:
+            properties = feature["properties"]
+            node_id = properties.get("Sensor_ID")
+            if isinstance(node_id, str) and node_id in stations:
+                properties.update(stations[node_id])
+        return catalog
 
     @application.get("/api/spatial/bypass")
     @application.get("/01_spatial_data/manyata_bypass_1.6km.geojson", include_in_schema=False)

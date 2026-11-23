@@ -7,7 +7,7 @@ from datetime import datetime
 from statistics import median_high, median_low
 
 LEVEL_RANK = {"GREEN": 0, "YELLOW": 1, "ORANGE": 2, "RED": 3}
-RULE_VERSION = "prototype-v1"
+RULE_VERSION = "prototype-v2"
 
 
 @dataclass(frozen=True)
@@ -74,23 +74,30 @@ def depth_level(rule: SensorRule, depth: float) -> str:
 def recent_trend(history: list[dict], policy: AlertPolicy) -> tuple[float | None, list[float], int, tuple[str, ...]]:
     """Use a contiguous same-source tail; client-reported rates never qualify."""
     flags = []
-    if not history or not history[-1].get("observed_at"):
+    if not history:
         return None, [], 0, ("timestamp_unknown",)
-    tail = [history[-1]]
-    for previous in reversed(history[:-1]):
-        current = tail[0]
-        if not previous.get("observed_at") or not previous.get("received_at"):
+    tail = []
+    for sample in reversed(history):
+        if not sample.get("observed_at") or not sample.get("received_at"):
             flags.append("timestamp_unknown")
             break
-        if previous.get("source") != current.get("source"):
+        if tail and sample.get("source") != tail[0].get("source"):
             flags.append("source_changed")
             break
-        observed_gap = (parse_time(current["observed_at"]) - parse_time(previous["observed_at"])).total_seconds()
-        receipt_gap = (parse_time(current["received_at"]) - parse_time(previous["received_at"])).total_seconds()
-        if not 0 < observed_gap <= policy.max_gap_seconds or not 0 <= receipt_gap <= policy.max_gap_seconds:
-            flags.append("sampling_gap")
+        observed = parse_time(sample["observed_at"])
+        received = parse_time(sample["received_at"])
+        # Compare the observation to its own receipt. An on-time sample can
+        # support a longer trend; an already-stale backlog cannot supply it.
+        if sample.get("source") != "simulated" and (received - observed).total_seconds() > policy.max_gap_seconds:
+            flags.append("stale_trend_evidence")
             break
-        tail.insert(0, previous)
+        if tail:
+            observed_gap = (parse_time(tail[0]["observed_at"]) - observed).total_seconds()
+            receipt_gap = (parse_time(tail[0]["received_at"]) - received).total_seconds()
+            if not 0 < observed_gap <= policy.max_gap_seconds or not 0 <= receipt_gap <= policy.max_gap_seconds:
+                flags.append("sampling_gap")
+                break
+        tail.insert(0, sample)
         if len(tail) >= policy.window_samples:
             break
     rates = []

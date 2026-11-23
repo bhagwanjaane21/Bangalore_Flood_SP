@@ -169,6 +169,39 @@ def test_stale_observations_cannot_confirm_recovery(client, monkeypatch):
     assert len(client.get("/api/alerts").json()) == 1
 
 
+def test_old_buffered_samples_cannot_supply_a_new_fresh_trend_warning(client):
+    base = datetime.now(timezone.utc)
+    readings = [
+        post(client, depth, source="hardware", observed_at=utc_timestamp(base + timedelta(seconds=offset)))
+        for offset, depth in ((-132, .20), (-102, .23), (-72, .26), (-42, .29), (-12, .32))
+    ]
+    assert [r["data_status"] for r in readings] == ["stale", "stale", "fresh", "fresh", "fresh"]
+    assert [r["alert_level"] for r in readings] == ["GREEN", "GREEN", "GREEN", "GREEN", "ORANGE"]
+    assert "stale_trend_evidence" in readings[2]["quality_flags"]
+    assert readings[2]["trend_sample_count"] == 1
+    assert readings[-1]["trend_sample_count"] == 3
+    events = client.get("/api/alerts").json()
+    assert [event["reading_id"] for event in events] == [readings[-1]["reading_id"]]
+
+
+def test_on_time_hardware_samples_remain_valid_through_a_longer_trend_window(client, monkeypatch):
+    start = datetime.now(timezone.utc)
+
+    class Clock(datetime):
+        current = start
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current.astimezone(tz) if tz else cls.current.replace(tzinfo=None)
+
+    monkeypatch.setattr(main_module, "datetime", Clock)
+    for index, depth in enumerate((.20, .25, .30)):
+        Clock.current = start + timedelta(seconds=index * 60)
+        reading = post(client, depth, source="hardware", observed_at=utc_timestamp(Clock.current))
+    assert reading["trend_sample_count"] == 3
+    assert (reading["alert_level"], reading["alert_kind"]) == ("ORANGE", "trend")
+
+
 def test_status_reads_do_not_mutate_decisions_or_create_events(client, settings):
     result = post(client, 1.6)
     with closing(sqlite3.connect(settings.database_path)) as connection:
@@ -194,6 +227,7 @@ def test_events_are_bounded_ordered_filterable_and_cursor_does_not_skip(client):
     assert ids == sorted(ids) and len(ids) == 4
     assert [event["event_id"] for event in client.get("/api/alerts?limit=2").json()] == ids[-2:]
     assert [event["event_id"] for event in client.get(f"/api/alerts?after_id={ids[0]}&limit=2").json()] == ids[1:3]
+    assert client.get(f"/api/alerts?after_id={2**64}").json() == []
     assert len(client.get("/api/alerts?node_id=SENSOR_02").json()) == 1
     assert client.get("/api/alerts?node_id=MISSING").status_code == 404
     for query in ("limit=0", "limit=1001", "limit=abc", "after_id=-1"):
@@ -258,8 +292,9 @@ def test_failed_event_write_rolls_back_reading_and_state(client, settings):
         connection.execute("""CREATE TRIGGER fail_event BEFORE INSERT ON alert_events
             BEGIN SELECT RAISE(ABORT, 'test event failure'); END""")
         connection.commit()
-    with pytest.raises(sqlite3.IntegrityError, match="test event failure"):
-        post(client, 1.6, 30)
+    failure = client.post("/api/telemetry", json=payload(1.6, 30))
+    assert failure.status_code == 503
+    assert "test event failure" not in failure.text
     assert client.get("/api/sensors/status").json()["SENSOR_01"]["reading_id"] == original["reading_id"]
     assert len(client.get("/api/sensors/history/SENSOR_01").json()) == 1
     assert client.get("/api/alerts").json() == []

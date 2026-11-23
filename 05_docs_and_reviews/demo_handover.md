@@ -1,5 +1,9 @@
 # STREAM software demonstration and handover
 
+**Historical checkpoint, 22 November.** The notes below record the earlier
+two-terminal rehearsal and its browser results. For the current local dashboard,
+offline map, one-command rehearsal and replay, use the [project workflow](project_workflow.md).
+
 Prepared 22 November 2026 for the 25 November review. This is a software prototype
 using virtual sensors. Hardware, calibrated forecasts and verified road routing
 are outside this demonstration.

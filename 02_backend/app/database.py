@@ -37,15 +37,16 @@ class TelemetryDatabase:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect(create=True) as connection:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute("""
-                CREATE TABLE IF NOT EXISTS backend_metadata (
-                    key TEXT PRIMARY KEY, value TEXT NOT NULL
+            # New databases and pre-notification schemas need an identity. A
+            # damaged existing identity must never re-namespace delivered events.
+            if not connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'backend_metadata'"
+            ).fetchone():
+                connection.execute("CREATE TABLE backend_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                connection.execute(
+                    "INSERT INTO backend_metadata VALUES ('event_stream_id', ?)", (str(uuid.uuid4()),)
                 )
-            """)
-            connection.execute(
-                "INSERT OR IGNORE INTO backend_metadata VALUES ('event_stream_id', ?)",
-                (str(uuid.uuid4()),),
-            )
+            self._event_stream_id(connection)
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS telemetry (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,15 +110,12 @@ class TelemetryDatabase:
             connection.execute("CREATE INDEX IF NOT EXISTS alert_events_node_id ON alert_events(node_id, id)")
             # Bootstrap the latest historical decision without manufacturing past
             # notifications or replaying events on each application restart.
-            for row in connection.execute("""
-                SELECT * FROM (
-                    SELECT *, ROW_NUMBER() OVER (
-                        PARTITION BY node_id
-                        ORDER BY observed_at IS NOT NULL DESC, observed_at DESC, id DESC
-                    ) AS position FROM telemetry
-                ) WHERE position = 1
-            """).fetchall():
-                if row["node_id"] not in SENSOR_RULES:
+            for node_id in SENSOR_RULES:
+                row = connection.execute("""
+                    SELECT * FROM telemetry WHERE node_id = ?
+                    ORDER BY observed_at DESC, id DESC LIMIT 1
+                """, (node_id,)).fetchone()
+                if row is None:
                     continue
                 state = connection.execute("SELECT * FROM alert_state WHERE node_id = ?", (row["node_id"],)).fetchone()
                 if state and state["reading_id"] == row["id"] and row["alert_level"] is not None:
@@ -127,7 +125,6 @@ class TelemetryDatabase:
 
     def check_ready(self):
         with self.connect() as connection:
-            self._event_stream_id(connection)
             connection.execute("""
                 SELECT id, node_id, water_depth_m, rate_of_rise_cm_min,
                        battery_voltage, timestamp, observed_at, received_at, source,
@@ -139,6 +136,7 @@ class TelemetryDatabase:
             """)
             connection.execute("SELECT node_id, level, recovery_count, reading_id FROM alert_state LIMIT 0")
             connection.execute("SELECT id, reading_id, new_level, rule_version FROM alert_events LIMIT 0")
+            return self._event_stream_id(connection)
 
     @staticmethod
     def _event_stream_id(connection):
@@ -172,7 +170,7 @@ class TelemetryDatabase:
                 raise TelemetryConflict("Conflicting readings at the same observation time")
             previous = connection.execute("""
                 SELECT * FROM telemetry WHERE node_id = ?
-                ORDER BY observed_at IS NOT NULL DESC, observed_at DESC, id DESC LIMIT 1
+                ORDER BY observed_at DESC, id DESC LIMIT 1
             """, (reading.node_id,)).fetchone()
             if previous and previous["observed_at"]:
                 if observed_at < previous["observed_at"]:
@@ -207,7 +205,7 @@ class TelemetryDatabase:
         state = dict(state_row) if state_row else None
         rows = connection.execute("""
             SELECT * FROM telemetry WHERE node_id = ?
-            ORDER BY observed_at IS NOT NULL DESC, observed_at DESC, id DESC LIMIT ?
+            ORDER BY observed_at DESC, id DESC LIMIT ?
         """, (reading["node_id"], self.policy.window_samples)).fetchall()
         history = [dict(row) for row in reversed(rows)]
         decision = evaluate_reading(reading, history, state, now, self.policy)
@@ -236,13 +234,10 @@ class TelemetryDatabase:
     def get_latest_telemetry(self) -> list[dict]:
         with self.connect() as connection:
             rows = connection.execute("""
-                SELECT *, (SELECT MAX(e.id) FROM alert_events e WHERE e.node_id = latest.node_id)
-                    AS alert_event_id FROM (
-                    SELECT *, ROW_NUMBER() OVER (
-                        PARTITION BY node_id
-                        ORDER BY observed_at IS NOT NULL DESC, observed_at DESC, id DESC
-                    ) AS position FROM telemetry
-                ) AS latest WHERE position = 1 ORDER BY node_id
+                SELECT t.*, (SELECT MAX(e.id) FROM alert_events e WHERE e.node_id = s.node_id)
+                    AS alert_event_id
+                FROM alert_state s JOIN telemetry t ON t.id = s.reading_id
+                ORDER BY s.node_id
             """).fetchall()
         return [dict(row) for row in rows]
 
@@ -250,7 +245,7 @@ class TelemetryDatabase:
         with self.connect() as connection:
             rows = connection.execute("""
                 SELECT * FROM telemetry WHERE node_id = ?
-                ORDER BY observed_at IS NOT NULL DESC, observed_at DESC, id DESC LIMIT ?
+                ORDER BY observed_at DESC, id DESC LIMIT ?
             """, (node_id, limit)).fetchall()
         return [dict(row) for row in reversed(rows)]
 
@@ -262,7 +257,8 @@ class TelemetryDatabase:
             parameters.append(node_id)
         if after_id is not None:
             clauses.append("e.id > ?")
-            parameters.append(after_id)
+            # A cursor beyond SQLite's maximum row ID is a valid empty page.
+            parameters.append(min(after_id, 2**63 - 1))
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
         order = "ASC" if after_id is not None else "DESC"
         parameters.append(limit)
